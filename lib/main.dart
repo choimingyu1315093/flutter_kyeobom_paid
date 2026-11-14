@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:camera/camera.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -21,6 +22,33 @@ class HomeCameraApp extends StatelessWidget {
 class RoleSelectionScreen extends StatelessWidget {
   const RoleSelectionScreen({super.key});
 
+  Future<void> _openStation(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('홈캠 대기 모드가 시작됩니다.'),
+        content: const Text(
+          '화면은 어둡게 유지되며 자동으로 잠기지 않습니다.\n\n'
+          '안정적인 원격 연결을 위해 충전기를 연결하고 앱을 실행 상태로 유지해 주세요.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('대기 시작'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => const StationScreen()),
+    );
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(title: const Text('Home Camera · P0')),
@@ -36,10 +64,7 @@ class RoleSelectionScreen extends StatelessWidget {
                 FilledButton.icon(
                   icon: const Icon(Icons.videocam_off),
                   label: const Text('거치폰 · 카메라 대기'),
-                  onPressed: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                        builder: (_) => const StationScreen()),
-                  ),
+                  onPressed: () => _openStation(context),
                 ),
                 const SizedBox(height: 12),
                 OutlinedButton.icon(
@@ -69,6 +94,9 @@ class _StationScreenState extends State<StationScreen>
   static const _screen = MethodChannel('home_camera/screen');
   String _status = '대기 화면 준비 중';
   bool _active = false;
+  CameraController? _camera;
+  String? _cameraError;
+  bool _cameraBusy = false;
 
   @override
   void initState() {
@@ -104,9 +132,46 @@ class _StationScreenState extends State<StationScreen>
     });
   }
 
+  Future<void> _toggleCamera() async {
+    if (_cameraBusy) return;
+    setState(() => _cameraBusy = true);
+    try {
+      if (_camera != null) {
+        final old = _camera!;
+        setState(() => _camera = null);
+        await old.dispose();
+      } else {
+        final devices = await availableCameras();
+        final rear = devices.where(
+          (camera) => camera.lensDirection == CameraLensDirection.back,
+        );
+        if (rear.isEmpty) throw StateError('후면 카메라를 찾을 수 없습니다');
+        final controller = CameraController(
+          rear.first,
+          ResolutionPreset.medium,
+          enableAudio: false,
+        );
+        await controller.initialize();
+        if (!mounted) {
+          await controller.dispose();
+          return;
+        }
+        setState(() {
+          _camera = controller;
+          _cameraError = null;
+        });
+      }
+    } catch (error) {
+      if (mounted) setState(() => _cameraError = '$error');
+    } finally {
+      if (mounted) setState(() => _cameraBusy = false);
+    }
+  }
+
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _camera?.dispose();
     _screen.invokeMethod<void>('disableWaitingMode');
     super.dispose();
   }
@@ -126,6 +191,23 @@ class _StationScreenState extends State<StationScreen>
                 const SizedBox(height: 12),
                 const Text('카메라 OFF · 마이크 OFF · 녹화 OFF',
                     style: TextStyle(color: Colors.white30, fontSize: 12)),
+                const SizedBox(height: 18),
+                if (_camera != null && _camera!.value.isInitialized)
+                  SizedBox(
+                    width: 220,
+                    height: 280,
+                    child: CameraPreview(_camera!),
+                  ),
+                if (_cameraError != null)
+                  Text(_cameraError!,
+                      style: const TextStyle(color: Colors.orangeAccent)),
+                const SizedBox(height: 12),
+                OutlinedButton(
+                  onPressed: _cameraBusy ? null : _toggleCamera,
+                  child: Text(_camera == null
+                      ? '후면 카메라 로컬 테스트 (P1)'
+                      : '카메라 끄기'),
+                ),
                 const SizedBox(height: 28),
                 TextButton(
                   onPressed: () => Navigator.of(context).pop(),
