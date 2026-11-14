@@ -1,9 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:camera/camera.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'remote_control.dart';
+import 'dart:async';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  try { await RemoteControl.instance.initialize(); } catch (_) { /* setup shown in app */ }
   runApp(const HomeCameraApp());
 }
 
@@ -15,7 +20,12 @@ class HomeCameraApp extends StatelessWidget {
         title: 'Home Camera P0',
         debugShowCheckedModeBanner: false,
         theme: ThemeData.dark(useMaterial3: true),
-        home: const RoleSelectionScreen(),
+        routes: {'/roles': (_) => const RoleSelectionScreen()},
+        home: Firebase.apps.isEmpty
+          ? const Scaffold(body: Center(child: Text('Firebase 설정 필요: flutterfire configure 실행 후 재빌드')))
+          : FirebaseAuth.instance.currentUser == null
+            ? const LoginScreen()
+            : const RoleSelectionScreen(),
       );
 }
 
@@ -97,12 +107,42 @@ class _StationScreenState extends State<StationScreen>
   CameraController? _camera;
   String? _cameraError;
   bool _cameraBusy = false;
+  StreamSubscription<dynamic>? _remoteSubscription;
+  String? _lastCommandId;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _startWaiting();
+    _connectRemote();
+  }
+
+  Future<void> _connectRemote() async {
+    try {
+      await RemoteControl.instance.startStation();
+      _remoteSubscription = RemoteControl.instance.watch().listen((snapshot) async {
+        if (!mounted || !snapshot.exists) return;
+        final data = snapshot.data()!;
+        final id = data['commandId'] as String? ?? '';
+        final command = data['command'] as String? ?? 'idle';
+        if (id.isEmpty || id == _lastCommandId) return;
+        _lastCommandId = id;
+        if (command != 'start' && command != 'stop') return;
+        try {
+          if (command == 'start' && _camera == null) await _toggleCamera();
+          if (command == 'stop' && _camera != null) await _toggleCamera();
+          await RemoteControl.instance.acknowledge(id,
+            _cameraError != null ? 'error: $_cameraError' : (_camera == null ? 'camera_off' : 'camera_on'));
+        } catch (error) {
+          await RemoteControl.instance.acknowledge(id, 'error: $error');
+        }
+      }, onError: (Object error) {
+        if (mounted) setState(() => _status = '원격 연결 오류: $error');
+      });
+    } catch (error) {
+      if (mounted) setState(() => _status = 'Firebase 연결 오류: $error');
+    }
   }
 
   Future<void> _startWaiting() async {
@@ -171,6 +211,8 @@ class _StationScreenState extends State<StationScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _remoteSubscription?.cancel();
+    RemoteControl.instance.stopStation();
     _camera?.dispose();
     _screen.invokeMethod<void>('disableWaitingMode');
     super.dispose();
@@ -225,15 +267,34 @@ class ViewerScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('뷰어 · P0')),
-        body: const Center(
-          child: Padding(
-            padding: EdgeInsets.all(24),
-            child: Text(
-              '뷰어 화면 준비 완료\n\n원격 기기 연결 및 WebRTC 영상은 P1~P3에서 구현합니다.\n현재 버전에서는 카메라를 켜지 않습니다.',
-              textAlign: TextAlign.center,
-            ),
+    appBar: AppBar(title: const Text('뷰어 · 원격 제어 P2')),
+    body: StreamBuilder(
+      stream: RemoteControl.instance.watch(),
+      builder: (context, snapshot) {
+        final data = snapshot.data?.data();
+        final status = data?['status'] ?? '응답 대기';
+        final online = data?['onlineHint'] == true;
+        return Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Text('거치폰: ${online ? "대기 중 (최근 상태)" : "대기 중 아님"}'),
+          Text('마지막 응답: $status'),
+          const SizedBox(height: 20),
+          FilledButton(
+            onPressed: () async {
+              try { await RemoteControl.instance.send('start'); }
+              catch (e) { if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e'))); }
+            },
+            child: const Text('원격 후면 카메라 켜기'),
           ),
-        ),
-      );
+          OutlinedButton(
+            onPressed: () async {
+              try { await RemoteControl.instance.send('stop'); }
+              catch (e) { if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e'))); }
+            },
+            child: const Text('원격 카메라 끄기'),
+          ),
+          const Text('P2: 명령 제어만 구현. 영상 전송은 아직 없음.'),
+        ]));
+      },
+    ),
+  );
 }
