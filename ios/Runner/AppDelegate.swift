@@ -12,5 +12,24 @@ import UIKit
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+    guard let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "HomeCameraWaitingMode") else {
+      return
+    }
+    let channel = FlutterMethodChannel(
+      name: "home_camera/screen",
+      binaryMessenger: registrar.messenger()
+    )
+    channel.setMethodCallHandler { call, result in
+      switch call.method {
+      case "enableWaitingMode":
+        UIApplication.shared.isIdleTimerDisabled = true
+        result(nil)
+      case "disableWaitingMode":
+        UIApplication.shared.isIdleTimerDisabled = false
+        result(nil)
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    }
   }
 }
