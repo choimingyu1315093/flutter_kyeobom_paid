@@ -1,14 +1,11 @@
-/// Determines whether the incoming WebRTC frame must be rotated to fit the
-/// viewer's landscape presentation.
+/// The station video in the verified iPhone/Android pair arrives sideways.
 ///
-/// The RTCVideoRenderer often reports a portrait frame while a rear camera is
-/// held sideways. Rotating those pixels (rather than only the Flutter page)
-/// restores a horizontal picture. Already-landscape frames are left unchanged.
-int videoQuarterTurns({
-  required bool viewerLandscape,
-  required int videoWidth,
-  required int videoHeight,
-}) {
-  if (!viewerLandscape || videoWidth <= 0 || videoHeight <= 0) return 0;
-  return videoHeight > videoWidth ? 1 : 0;
-}
+/// When the viewer enters landscape, rotate the actual received pixels by
+/// 90 degrees (not just the Flutter screen). The video surface uses cover
+/// fitting to fill the landscape viewport without large black side bars.
+///
+/// RTCVideoRenderer.videoWidth/videoHeight cannot determine which way the
+/// scene's floor and walls are oriented: relying on aspect ratio caused the
+/// screenshot's video to stay sideways and narrow.
+int videoQuarterTurns({required bool viewerLandscape}) =>
+    viewerLandscape ? 1 : 0;
