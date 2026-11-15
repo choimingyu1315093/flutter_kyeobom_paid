@@ -181,6 +181,8 @@ class _StationScreenState extends State<StationScreen>
     final sessionId = data['sessionId'] as String? ?? '';
 
     if (command == 'stop') {
+      // Ignore delayed stop commands from an older session.
+      if (sessionId != _rtc.sessionId) return;
       await _finishStream();
       await RemoteControl.instance.acknowledge(id, 'camera_off');
       return;
@@ -198,6 +200,9 @@ class _StationScreenState extends State<StationScreen>
 
     try {
       if (mounted) setState(() => _status = '원격 연결 준비 중');
+      if (_rtc.isRunning && _rtc.sessionId != sessionId) {
+        await _rtc.end();
+      }
       await _rtc.startStation(sessionId);
       if (!mounted || _leaving || !_foreground) {
         await _rtc.end();
@@ -314,7 +319,8 @@ class ViewerScreen extends StatefulWidget {
   State<ViewerScreen> createState() => _ViewerScreenState();
 }
 
-class _ViewerScreenState extends State<ViewerScreen> {
+class _ViewerScreenState extends State<ViewerScreen>
+    with WidgetsBindingObserver {
   late final HomeCamWebRtcSession _rtc;
   String _status = '실시간 보기를 누르면 원격 연결합니다';
   bool _busy = false;
@@ -324,6 +330,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _rtc = HomeCamWebRtcSession(
       onStatus: (value) {
         if (mounted) setState(() => _status = value);
@@ -385,7 +392,15 @@ class _ViewerScreenState extends State<ViewerScreen> {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed && !_leaving && _watching) {
+      unawaited(_stop());
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     unawaited(_rtc.end());
     super.dispose();
   }
