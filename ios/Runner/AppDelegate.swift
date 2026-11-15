@@ -27,6 +27,23 @@ import UIKit
       case "disableWaitingMode":
         UIApplication.shared.isIdleTimerDisabled = false
         result(nil)
+      case "getViewerLandscapeSide":
+        // Query the UI's actual orientation so a 180-degree phone turn
+        // updates both controls and the remote video's correction.
+        let scenes = UIApplication.shared.connectedScenes.compactMap {
+          $0 as? UIWindowScene
+        }
+        let activeScene = scenes.first(where: {
+          $0.activationState == .foregroundActive
+        }) ?? scenes.first
+        switch activeScene?.interfaceOrientation {
+        case .landscapeLeft:
+          result("left")
+        case .landscapeRight:
+          result("right")
+        default:
+          result("unknown")
+        }
       default:
         result(FlutterMethodNotImplemented)
       }
