@@ -33,6 +33,11 @@ class HomeCamWebRtcSession {
   Timer? _viewerHeartbeat;
   Timer? _stationWatchdog;
   DateTime? _lastHeartbeatReceived;
+  int? _lastLegacyHeartbeatVersion;
+  DateTime? _viewerStartedAt;
+  DateTime? _lastDirectAck;
+  DateTime? _lastFirestoreFallback;
+  bool _directHeartbeatConfirmed = false;
 
   String? _sessionId;
   bool _viewer = false;
@@ -90,6 +95,35 @@ class HomeCamWebRtcSession {
     }
   }
 
+  /// Legacy versions do not acknowledge the new DataChannel heartbeat.
+  /// Write Firestore ONLY after the direct channel has failed to confirm
+  /// liveness, with a longer interval than the original 10-second writes.
+  Future<void> _maybeSendFirestoreFallback(String id) async {
+    if (_closing || !_viewer || _sessionId != id) return;
+    final started = _viewerStartedAt;
+    if (started == null) return;
+    final now = DateTime.now();
+    if (!HomeCamCostPolicy.shouldWriteFallback(
+      now: now,
+      startedAt: started,
+      lastDirectAcknowledgement: _lastDirectAck,
+      lastFallbackWrite: _lastFirestoreFallback,
+    )) {
+      return;
+    }
+    // Reserve the slot first so concurrent timer calls never duplicate writes.
+    _lastFirestoreFallback = now;
+    try {
+      await _session(id).set({
+        'viewerHeartbeatAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    } catch (error) {
+      if (!_closing && _sessionId == id) {
+        onStatus('호환성 연결 유지 신호 오류: $error');
+      }
+    }
+  }
+
   void _receiveStationHeartbeat(RTCDataChannel channel, String id) {
     if (_closing || _viewer || _sessionId != id ||
         channel.label != HomeCamCostPolicy.dataChannelLabel) {
@@ -100,6 +134,19 @@ class HomeCamWebRtcSession {
       if (_closing || _viewer || _sessionId != id || message.isBinary) return;
       if (HomeCamCostPolicy.isHeartbeatForSession(message.text, id)) {
         _lastHeartbeatReceived = DateTime.now();
+        if (!_directHeartbeatConfirmed) {
+          _directHeartbeatConfirmed = true;
+          onStatus('직접 연결 유지 정상 · 서버 반복 쓰기 없음');
+        }
+        // Acknowledge receipt to let the viewer suppress legacy Firestore
+        // fallback, including on reconnect after temporary packet loss.
+        if (channel.state == RTCDataChannelState.RTCDataChannelOpen) {
+          unawaited(channel.send(
+            RTCDataChannelMessage(HomeCamCostPolicy.acknowledge(id)),
+          ).catchError((Object error) {
+            if (!_closing) onStatus('직접 연결 확인 응답 오류: $error');
+          }));
+        }
       }
     };
     // The watchdog still protects the station if this channel never opens,
@@ -151,6 +198,9 @@ class HomeCamWebRtcSession {
     await end(notifyRemote: false);
     _closing = false;
     _viewer = true;
+    _viewerStartedAt = DateTime.now();
+    _lastDirectAck = null;
+    _lastFirestoreFallback = null;
 
     final doc = RemoteControl.instance.station.collection('sessions').doc();
     final id = doc.id;
@@ -179,6 +229,14 @@ class HomeCamWebRtcSession {
         RTCDataChannelInit(),
       );
       _heartbeatChannel = channel;
+      channel.onMessage = (message) {
+        if (_closing || !_viewer || _sessionId != id || message.isBinary) {
+          return;
+        }
+        if (HomeCamCostPolicy.isAcknowledgementForSession(message.text, id)) {
+          _lastDirectAck = DateTime.now();
+        }
+      };
       channel.onDataChannelState = (state) {
         if (!_closing && _sessionId == id &&
             state == RTCDataChannelState.RTCDataChannelOpen) {
@@ -237,6 +295,7 @@ class HomeCamWebRtcSession {
         (_) {
           if (!_closing && _sessionId == id) {
             unawaited(_sendViewerHeartbeat());
+            unawaited(_maybeSendFirestoreFallback(id));
           }
         },
       );
@@ -271,6 +330,8 @@ class HomeCamWebRtcSession {
       await _newPeer();
       _watchCandidates(id, 'viewerCandidates');
       _lastHeartbeatReceived = DateTime.now();
+      _directHeartbeatConfirmed = false;
+      _lastLegacyHeartbeatVersion = null;
       _stationWatchdog = Timer.periodic(
         HomeCamCostPolicy.watchdogPeriod,
         (_) {
@@ -286,8 +347,21 @@ class HomeCamWebRtcSession {
       );
       _sessionSub = doc.snapshots().listen((snapshot) {
         if (_closing || _sessionId != id) return;
-        // Firestore only carries start/stop signaling; no repeating heartbeats.
-        if (snapshot.data()?['state'] == 'ended') onRemoteEnded?.call();
+        final data = snapshot.data();
+        // Accept the OLD app's Firestore keepalive if it has not updated yet.
+        // New clients send P2P heartbeats, so this generates no extra writes.
+        final legacy = data?['viewerHeartbeatAt'];
+        if (legacy is Timestamp) {
+          final version = legacy.toDate().millisecondsSinceEpoch;
+          if (version != _lastLegacyHeartbeatVersion) {
+            _lastLegacyHeartbeatVersion = version;
+            if (DateTime.now().difference(legacy.toDate()) <
+                HomeCamCostPolicy.stationTimeout) {
+              _lastHeartbeatReceived = DateTime.now();
+            }
+          }
+        }
+        if (data?['state'] == 'ended') onRemoteEnded?.call();
       }, onError: (Object error) {
         if (!_closing) onStatus('시그널링 수신 오류: $error');
       });
@@ -343,6 +417,11 @@ class HomeCamWebRtcSession {
     _stationWatchdog?.cancel();
     _stationWatchdog = null;
     _lastHeartbeatReceived = null;
+    _lastLegacyHeartbeatVersion = null;
+    _viewerStartedAt = null;
+    _lastDirectAck = null;
+    _lastFirestoreFallback = null;
+    _directHeartbeatConfirmed = false;
     final channel = _heartbeatChannel;
     _heartbeatChannel = null;
     if (channel != null) {
