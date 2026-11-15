@@ -13,7 +13,8 @@ import 'webrtc_session.dart';
 import 'audio_session.dart';
 import 'video_orientation.dart';
 import 'viewer_video_controls.dart';
-import 'viewer_video_controls.dart';
+import 'kyeobom_design.dart';
+import 'kyeobom_screens.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -30,9 +31,9 @@ class HomeCameraApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => MaterialApp(
-        title: 'HomeCamera',
+        title: '켜봄',
         debugShowCheckedModeBanner: false,
-        theme: ThemeData.dark(useMaterial3: true),
+        theme: KyeobomTheme.light,
         routes: {'/roles': (_) => const RoleSelectionScreen()},
         home: Firebase.apps.isEmpty
             ? const Scaffold(
@@ -78,29 +79,76 @@ class RoleSelectionScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('HomeCamera · 실시간 보기 P3')),
-        body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              const Text('이 기기의 역할을 선택하세요',
-                  style: TextStyle(fontSize: 22)),
-              const SizedBox(height: 24),
-              FilledButton.icon(
-                icon: const Icon(Icons.videocam_off),
-                label: const Text('거치폰 · 카메라 대기'),
-                onPressed: () => _openStation(context),
-              ),
-              const SizedBox(height: 12),
-              OutlinedButton.icon(
-                icon: const Icon(Icons.visibility),
-                label: const Text('뷰어폰 · 실시간 보기'),
-                onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                      builder: (_) => const ViewerScreen()),
+        appBar: AppBar(
+          title: const Text('켜봄',
+              style: TextStyle(
+                color: KyeobomPalette.ink,
+                fontWeight: FontWeight.w800,
+              )),
+        ),
+        body: SafeArea(
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 480),
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(24, 34, 24, 24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const KyeobomMark(size: 74),
+                    const SizedBox(height: 36),
+                    const KyeobomEyebrow('START WITH KYEOBOM'),
+                    const SizedBox(height: 16),
+                    const Text(
+                      '이 스마트폰은\n어떻게 사용할까요?',
+                      style: TextStyle(
+                        color: KyeobomPalette.ink,
+                        fontSize: 29,
+                        fontWeight: FontWeight.w800,
+                        height: 1.28,
+                        letterSpacing: -0.9,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      '사용할 역할을 선택해 주세요.',
+                      style: TextStyle(color: KyeobomPalette.muted, fontSize: 14),
+                    ),
+                    const SizedBox(height: 40),
+                    KyeobomRoleCard(
+                      icon: Icons.videocam_outlined,
+                      title: '홈캠으로 사용',
+                      subtitle: '집에 두고 카메라를 대기시켜요.',
+                      featured: true,
+                      onTap: () => _openStation(context),
+                    ),
+                    const SizedBox(height: 14),
+                    KyeobomRoleCard(
+                      icon: Icons.visibility_outlined,
+                      title: '홈캠 보기',
+                      subtitle: '다른 곳에서 실시간으로 확인해요.',
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const ViewerScreen(),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 30),
+                    const Center(
+                      child: Text(
+                        '홈캠으로 사용하는 스마트폰은\n충전기에 연결해 주세요.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: KyeobomPalette.muted,
+                          fontSize: 12,
+                          height: 1.55,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            ]),
+            ),
           ),
         ),
       );
@@ -375,69 +423,19 @@ class _StationScreenState extends State<StationScreen>
         onPopInvokedWithResult: (didPop, result) {
           if (!didPop) unawaited(_leave());
         },
-        child: Scaffold(
-          backgroundColor: Colors.black,
-          body: SafeArea(
-            child: Center(
-              child: Column(mainAxisSize: MainAxisSize.min, children: [
-                Icon(_streaming ? Icons.videocam : Icons.videocam_off_outlined,
-                    size: 38, color: Colors.white38),
-                const SizedBox(height: 14),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
-                  child: Text(_status,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(color: Colors.white54)),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  _streaming
-                      ? '후면 카메라 ON · 마이크 ${_microphoneOn ? "ON" : "OFF"} · 녹화 OFF'
-                      : '카메라 OFF · 마이크 OFF · 녹화 OFF',
-                  style: const TextStyle(color: Colors.white30, fontSize: 12),
-                ),
-                if (!_streaming) ...[
-                  const SizedBox(height: 12),
-                  ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 420),
-                    child: SwitchListTile.adaptive(
-                      title: const Text('실시간 보기 시 거치폰 마이크 자동 켜기',
-                          style: TextStyle(fontSize: 14)),
-                      subtitle: const Text(
-                          '거치폰 주변 소리만 전송 · 대기 중 마이크 OFF',
-                          style: TextStyle(fontSize: 11)),
-                      value: _micAutoEnabled,
-                      onChanged: _micSettingsBusy || _leaving
-                          ? null
-                          : (enabled) => unawaited(_setMicAutoEnabled(enabled)),
-                    ),
-                  ),
-                ],
-                if (_streaming) ...[
-                  const SizedBox(height: 14),
-                  OutlinedButton.icon(
-                    onPressed: _microphoneBusy ? null : _toggleStationMicrophone,
-                    icon: Icon(_microphoneOn ? Icons.mic : Icons.mic_off),
-                    label: Text(_microphoneBusy
-                        ? '마이크 전환 중'
-                        : _microphoneOn ? '거치폰 마이크 끄기' : '거치폰 마이크 켜기'),
-                  ),
-                  if (_microphoneMessage != null)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: Text(_microphoneMessage!,
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(color: Colors.white54, fontSize: 12)),
-                    ),
-                ],
-                const SizedBox(height: 28),
-                TextButton(
-                  onPressed: _leaving ? null : _leave,
-                  child: const Text('대기 종료'),
-                ),
-              ]),
-            ),
-          ),
+        child: KyeobomStationView(
+          status: _status,
+          streaming: _streaming,
+          microphoneOn: _microphoneOn,
+          microphoneBusy: _microphoneBusy,
+          microphoneMessage: _microphoneMessage,
+          autoMicrophoneEnabled: _micAutoEnabled,
+          autoMicrophoneBusy: _micSettingsBusy,
+          onAutoMicrophoneChanged: (enabled) =>
+              unawaited(_setMicAutoEnabled(enabled)),
+          leaving: _leaving,
+          onLeave: () => unawaited(_leave()),
+          onToggleMicrophone: () => unawaited(_toggleStationMicrophone()),
         ),
       );
 }
@@ -686,84 +684,24 @@ class _ViewerScreenState extends State<ViewerScreen>
 
   @override
   Widget build(BuildContext context) {
-    final landscape = MediaQuery.orientationOf(context) ==
-        Orientation.landscape;
+    final landscape = MediaQuery.orientationOf(context) == Orientation.landscape;
     return PopScope(
       canPop: _leaving,
       onPopInvokedWithResult: (didPop, result) {
         if (!didPop) unawaited(_leave());
       },
-      child: Scaffold(
-        appBar: landscape ? null : AppBar(title: const Text('홈캠 실시간 보기')),
-        // Let video extend edge-to-edge in landscape; keep only controls
-        // inside the device's notch/system safe areas.
-        body: landscape
-            ? Stack(children: [
-                Positioned.fill(child: _video()),
-                Positioned.fill(child: SafeArea(child: Stack(children: [
-                  Positioned(
-                    top: 8,
-                    left: 8,
-                    child: IconButton.filledTonal(
-                      tooltip: '뒤로',
-                      onPressed: _busy ? null : _leave,
-                      icon: const Icon(Icons.arrow_back),
-                    ),
-                  ),
-                  Positioned(
-                    top: 12,
-                    left: 70,
-                    right: 12,
-                    child: Text(_remoteAudioMessage ?? _status,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(color: Colors.white70)),
-                  ),
-                  if (_remoteAudioOn)
-                    const Positioned(
-                      top: 50,
-                      right: 12,
-                      child: Chip(
-                        avatar: Icon(Icons.volume_up),
-                        label: Text('거치폰 소리 듣는 중'),
-                      ),
-                    ),
-                  Positioned(
-                    left: 12,
-                    bottom: 12,
-                    child: FilledButton.icon(
-                      onPressed: _busy || !_watching ? null : _stop,
-                      icon: const Icon(Icons.stop),
-                      label: const Text('실시간 보기 종료'),
-                    ),
-                  ),
-                ]))),
-              ])
-            : SafeArea(child: Column(children: [
-                  Expanded(child: _video()),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-                    child: Column(children: [
-                      Text(_status, textAlign: TextAlign.center),
-                      const SizedBox(height: 12),
-                      FilledButton.icon(
-                        onPressed: _busy || _watching ? null : _start,
-                        icon: const Icon(Icons.play_arrow),
-                        label: const Text('실시간 보기 시작'),
-                      ),
-                      if (_watching)
-                        OutlinedButton(
-                          onPressed: _busy ? null : _stop,
-                          child: const Text('실시간 보기 종료'),
-                        ),
-                      const SizedBox(height: 8),
-                      const Text('가로모드 자동 전환 · 두 손가락 확대/축소',
-                          style: TextStyle(color: Colors.white54, fontSize: 12)),
-                      const Text('소리는 거치폰 마이크로만 수집 · 뷰어폰은 재생만 합니다',
-                          style: TextStyle(color: Colors.white54, fontSize: 12)),
-                    ]),
-                  ),
-                ])),
+      child: KyeobomViewerView(
+        video: _video(),
+        status: _status,
+        watching: _watching,
+        busy: _busy,
+        leaving: _leaving,
+        landscape: landscape,
+        remoteAudioOn: _remoteAudioOn,
+        remoteAudioMessage: _remoteAudioMessage,
+        onBack: () => unawaited(_leave()),
+        onStart: () => unawaited(_start()),
+        onStop: () => unawaited(_stop()),
       ),
     );
   }
