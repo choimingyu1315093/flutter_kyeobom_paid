@@ -585,10 +585,12 @@ class _ViewerScreenState extends State<ViewerScreen>
       },
       child: Scaffold(
         appBar: landscape ? null : AppBar(title: const Text('홈캠 실시간 보기')),
-        body: SafeArea(
-          child: landscape
-              ? Stack(children: [
-                  Positioned.fill(child: _video()),
+        // Let video extend edge-to-edge in landscape; keep only controls
+        // inside the device's notch/system safe areas.
+        body: landscape
+            ? Stack(children: [
+                Positioned.fill(child: _video()),
+                Positioned.fill(child: SafeArea(child: Stack(children: [
                   Positioned(
                     top: 8,
                     left: 8,
@@ -622,8 +624,9 @@ class _ViewerScreenState extends State<ViewerScreen>
                       label: const Text('실시간 보기 종료'),
                     ),
                   ),
-                ])
-              : Column(children: [
+                ]))),
+              ])
+            : SafeArea(child: Column(children: [
                   Expanded(child: _video()),
                   Padding(
                     padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
@@ -647,8 +650,7 @@ class _ViewerScreenState extends State<ViewerScreen>
                           style: TextStyle(color: Colors.white54, fontSize: 12)),
                     ]),
                   ),
-                ]),
-        ),
+                ])),
       ),
     );
   }
