@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 import 'remote_control.dart';
+import 'homecam_cost_policy.dart';
 
 /// One on-demand, video-only WebRTC session.
 ///
@@ -19,12 +20,8 @@ class HomeCamWebRtcSession {
   final void Function(String status) onStatus;
   final void Function()? onRemoteEnded;
 
-  static const Map<String, dynamic> _iceConfig = {
-    'iceServers': [
-      {'urls': 'stun:stun.l.google.com:19302'},
-    ],
-    'sdpSemantics': 'unified-plan',
-  };
+  static const Map<String, dynamic> _iceConfig =
+      HomeCamCostPolicy.directIceConfig;
 
   RTCPeerConnection? _peer;
   MediaStream? _cameraStream;
@@ -32,10 +29,10 @@ class HomeCamWebRtcSession {
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _sessionSub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _candidatesSub;
   final List<RTCIceCandidate> _candidateQueue = [];
+  RTCDataChannel? _heartbeatChannel;
   Timer? _viewerHeartbeat;
   Timer? _stationWatchdog;
   DateTime? _lastHeartbeatReceived;
-  int? _lastHeartbeatVersion;
 
   String? _sessionId;
   bool _viewer = false;
@@ -58,6 +55,10 @@ class HomeCamWebRtcSession {
     _peer!.onConnectionState = (state) {
       if (!_closing) onStatus('WebRTC: ${state.toString().split('.').last}');
     };
+    _peer!.onDataChannel = (channel) {
+      final id = _sessionId;
+      if (id != null) _receiveStationHeartbeat(channel, id);
+    };
     _peer!.onIceCandidate = (candidate) {
       final id = _sessionId;
       if (_closing || id == null || candidate.candidate == null) return;
@@ -68,6 +69,41 @@ class HomeCamWebRtcSession {
         if (!_closing) onStatus('ICE 저장 오류: $error');
       }));
     };
+  }
+
+  /// The viewer sends small session-scoped heartbeats directly over the
+  /// existing WebRTC peer. No per-second or per-minute Firestore writes.
+  Future<void> _sendViewerHeartbeat() async {
+    final id = _sessionId;
+    final channel = _heartbeatChannel;
+    if (_closing || !_viewer || id == null ||
+        channel == null ||
+        channel.state != RTCDataChannelState.RTCDataChannelOpen) {
+      return;
+    }
+    try {
+      await channel.send(RTCDataChannelMessage(HomeCamCostPolicy.heartbeat(id)));
+    } catch (error) {
+      if (!_closing && _sessionId == id) {
+        onStatus('직접 연결 유지 신호 오류: $error');
+      }
+    }
+  }
+
+  void _receiveStationHeartbeat(RTCDataChannel channel, String id) {
+    if (_closing || _viewer || _sessionId != id ||
+        channel.label != HomeCamCostPolicy.dataChannelLabel) {
+      return;
+    }
+    _heartbeatChannel = channel;
+    channel.onMessage = (message) {
+      if (_closing || _viewer || _sessionId != id || message.isBinary) return;
+      if (HomeCamCostPolicy.isHeartbeatForSession(message.text, id)) {
+        _lastHeartbeatReceived = DateTime.now();
+      }
+    };
+    // The watchdog still protects the station if this channel never opens,
+    // stops receiving, or the viewer is force-killed without Firestore cleanup.
   }
 
   void _watchCandidates(String id, String remoteCollection) {
@@ -136,11 +172,23 @@ class HomeCamWebRtcSession {
           direction: TransceiverDirection.RecvOnly,
         ),
       );
+      // Create BEFORE offer so SCTP/data-channel negotiation happens together
+      // with the proven video peer, without additional peers or TURN servers.
+      final channel = await _peer!.createDataChannel(
+        HomeCamCostPolicy.dataChannelLabel,
+        RTCDataChannelInit(),
+      );
+      _heartbeatChannel = channel;
+      channel.onDataChannelState = (state) {
+        if (!_closing && _sessionId == id &&
+            state == RTCDataChannelState.RTCDataChannelOpen) {
+          unawaited(_sendViewerHeartbeat());
+        }
+      };
 
       await doc.set({
         'state': 'creating_offer',
         'createdAt': FieldValue.serverTimestamp(),
-        'viewerHeartbeatAt': FieldValue.serverTimestamp(),
       });
       _watchCandidates(id, 'stationCandidates');
       _sessionSub = doc.snapshots().listen((snapshot) async {
@@ -184,14 +232,14 @@ class HomeCamWebRtcSession {
         'state': 'offered',
       });
       await RemoteControl.instance.requestStart(id);
-      _viewerHeartbeat = Timer.periodic(const Duration(seconds: 10), (_) {
-        if (_closing || _sessionId != id) return;
-        unawaited(doc.set({
-          'viewerHeartbeatAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true)).catchError((Object error) {
-          if (!_closing) onStatus('연결 유지 신호 오류: $error');
-        }));
-      });
+      _viewerHeartbeat = Timer.periodic(
+        HomeCamCostPolicy.heartbeatPeriod,
+        (_) {
+          if (!_closing && _sessionId == id) {
+            unawaited(_sendViewerHeartbeat());
+          }
+        },
+      );
       onStatus('거치폰의 연결 응답을 기다리는 중');
     } catch (_) {
       await end();
@@ -223,31 +271,23 @@ class HomeCamWebRtcSession {
       await _newPeer();
       _watchCandidates(id, 'viewerCandidates');
       _lastHeartbeatReceived = DateTime.now();
-      _stationWatchdog = Timer.periodic(const Duration(seconds: 10), (_) {
-        if (_closing || _sessionId != id) return;
-        final last = _lastHeartbeatReceived;
-        if (last != null && DateTime.now().difference(last) >
-            const Duration(seconds: 45)) {
-          _stationWatchdog?.cancel();
-          onStatus('뷰어 연결이 끊어져 카메라를 종료합니다');
-          onRemoteEnded?.call();
-        }
-      });
+      _stationWatchdog = Timer.periodic(
+        HomeCamCostPolicy.watchdogPeriod,
+        (_) {
+          if (_closing || _sessionId != id) return;
+          final last = _lastHeartbeatReceived;
+          if (last != null &&
+              HomeCamCostPolicy.stationTimedOut(last, DateTime.now())) {
+            _stationWatchdog?.cancel();
+            onStatus('뷰어 연결 유지 신호 없음 · 카메라 종료');
+            onRemoteEnded?.call();
+          }
+        },
+      );
       _sessionSub = doc.snapshots().listen((snapshot) {
         if (_closing || _sessionId != id) return;
-        final data = snapshot.data();
-        final heartbeat = data?['viewerHeartbeatAt'];
-        if (heartbeat is Timestamp) {
-          final time = heartbeat.toDate().millisecondsSinceEpoch;
-          if (_lastHeartbeatVersion != time) {
-            _lastHeartbeatVersion = time;
-            if (DateTime.now().difference(heartbeat.toDate()) <
-                const Duration(seconds: 45)) {
-              _lastHeartbeatReceived = DateTime.now();
-            }
-          }
-        }
-        if (data?['state'] == 'ended') onRemoteEnded?.call();
+        // Firestore only carries start/stop signaling; no repeating heartbeats.
+        if (snapshot.data()?['state'] == 'ended') onRemoteEnded?.call();
       }, onError: (Object error) {
         if (!_closing) onStatus('시그널링 수신 오류: $error');
       });
@@ -303,7 +343,17 @@ class HomeCamWebRtcSession {
     _stationWatchdog?.cancel();
     _stationWatchdog = null;
     _lastHeartbeatReceived = null;
-    _lastHeartbeatVersion = null;
+    final channel = _heartbeatChannel;
+    _heartbeatChannel = null;
+    if (channel != null) {
+      channel.onMessage = null;
+      channel.onDataChannelState = null;
+      try {
+        await channel.close();
+      } catch (_) {
+        // Peer shutdown below always releases the native channel.
+      }
+    }
     _remoteDescriptionSet = false;
     _answerInProgress = false;
 
