@@ -9,6 +9,10 @@ void main() {
       expect(HomeCamCostPolicy.isHeartbeatForSession(value, 'session-A'), isTrue);
       expect(HomeCamCostPolicy.isHeartbeatForSession(value, 'session-B'), isFalse);
       expect(HomeCamCostPolicy.isHeartbeatForSession(value, ''), isFalse);
+      expect(HomeCamCostPolicy.isAcknowledgementForSession(
+          HomeCamCostPolicy.acknowledge('session-A'), 'session-A'), isTrue);
+      expect(HomeCamCostPolicy.isAcknowledgementForSession(
+          HomeCamCostPolicy.acknowledge('session-A'), 'session-B'), isFalse);
       expect(HomeCamCostPolicy.isHeartbeatForSession('hello', 'session-A'), isFalse);
       expect(
         HomeCamCostPolicy.isHeartbeatForSession(
@@ -35,6 +39,47 @@ void main() {
       final lastSuccessfulPing = t0.add(const Duration(seconds: 40));
       expect(HomeCamCostPolicy.stationTimedOut(
           lastSuccessfulPing, t0.add(const Duration(seconds: 60))), isFalse);
+    });
+
+    test('Firestore fallback is off in healthy direct-channel sessions', () {
+      final start = DateTime(2026, 11, 15, 12);
+      expect(HomeCamCostPolicy.shouldWriteFallback(
+        now: start.add(const Duration(seconds: 10)),
+        startedAt: start,
+      ), isFalse);
+
+      final acknowledged = start.add(const Duration(seconds: 12));
+      expect(HomeCamCostPolicy.shouldWriteFallback(
+        now: start.add(const Duration(seconds: 35)),
+        startedAt: start,
+        lastDirectAcknowledgement: acknowledged,
+      ), isFalse);
+
+      // Old clients have no ACK: start a compatibility fallback after 20s.
+      expect(HomeCamCostPolicy.shouldWriteFallback(
+        now: start.add(const Duration(seconds: 20)),
+        startedAt: start,
+      ), isTrue);
+
+      expect(HomeCamCostPolicy.shouldWriteFallback(
+        now: start.add(const Duration(seconds: 30)),
+        startedAt: start,
+        lastFallbackWrite: start.add(const Duration(seconds: 20)),
+      ), isFalse);
+
+      expect(HomeCamCostPolicy.shouldWriteFallback(
+        now: start.add(const Duration(seconds: 40)),
+        startedAt: start,
+        lastFallbackWrite: start.add(const Duration(seconds: 20)),
+      ), isTrue);
+
+      // If a direct ACK returns later, the database writes stop again.
+      expect(HomeCamCostPolicy.shouldWriteFallback(
+        now: start.add(const Duration(seconds: 45)),
+        startedAt: start,
+        lastDirectAcknowledgement: start.add(const Duration(seconds: 41)),
+        lastFallbackWrite: start.add(const Duration(seconds: 40)),
+      ), isFalse);
     });
 
     test('relay is disabled and cannot generate TURN traffic charges', () {
