@@ -12,12 +12,11 @@ void main() {
 
     await tester.pumpWidget(const MaterialApp(home: ViewerScreen()));
 
-    expect(find.text('실시간 보기 시작'), findsOneWidget);
+    expect(find.text('실시간 보기'), findsOneWidget);
     expect(find.text('가로 보기'), findsNothing);
     expect(find.text('자동 회전'), findsNothing);
     expect(find.byTooltip('영상 90도 회전'), findsNothing);
-    // The viewer is playback only; only the station captures sound.
-    expect(find.textContaining('소리는 거치폰 마이크로만 수집'),
+    expect(find.textContaining('연결 후 가로 화면으로 전환'),
         findsOneWidget);
   });
 }
