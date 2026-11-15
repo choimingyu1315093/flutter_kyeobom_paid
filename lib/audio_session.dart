@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 import 'remote_control.dart';
@@ -309,14 +310,58 @@ class ViewerAudio {
   String? _epoch;
   bool _closed = true;
   bool _remoteReady = false;
+  bool _receivedAudioTrack = false;
+  bool _iceConnected = false;
+  Timer? _routeRetry;
   int _candidateCount = 0;
   final List<RTCIceCandidate> _pendingCandidates = [];
   Future<void> _processing = Future<void>.value();
+
+  /// A receive-only iPhone may never open its microphone. That means WebRTC
+  /// can enter the first session with no active iOS audio playout session.
+  /// Initialize an output-only route before answering the very first offer.
+  Future<void> _prepareReceiverAudio() async {
+    if (defaultTargetPlatform != TargetPlatform.iOS) return;
+    await Helper.setAppleAudioIOMode(
+      AppleAudioIOMode.remoteOnly,
+      preferSpeakerOutput: true,
+    );
+    await Helper.ensureAudioSession();
+  }
+
+  /// Reassert the output route after the remote track and ICE become ready.
+  /// The first audio session often needs a separate speaker activation.
+  Future<void> _activateReceiverOutput(String epoch) async {
+    if (_closed || _epoch != epoch) return;
+    try {
+      if (defaultTargetPlatform == TargetPlatform.iOS) {
+        await Helper.ensureAudioSession();
+      }
+      if (_closed || _epoch != epoch) return;
+      await Helper.setSpeakerphoneOn(true);
+      if (!_closed && _epoch == epoch && _receivedAudioTrack && _iceConnected) {
+        onState(true, '거치폰 소리 수신 중');
+      }
+    } catch (error) {
+      if (!_closed && _epoch == epoch) {
+        onState(false, '뷰어폰 오디오 출력 준비 오류: $error');
+      }
+    }
+  }
 
   Future<void> attach(String videoSessionId) async {
     await detach();
     _closed = false;
     _doc = RemoteControl.instance.session(videoSessionId);
+    // This happens on a fresh install as well as subsequent sessions.
+    // Never request viewer microphone permission or create a local track.
+    try {
+      await _prepareReceiverAudio();
+    } catch (error) {
+      // Keep receiving the SDP even when the OS rejects routing setup.
+      onState(false, '오디오 출력 초기화 오류: $error');
+    }
+    if (_closed) return;
     _watch = _doc!.snapshots().listen((snapshot) {
       final data = snapshot.data();
       _processing = _processing.then((_) => _handle(data)).catchError(
@@ -355,6 +400,10 @@ class ViewerAudio {
     _epoch = epoch;
     _candidateCount = 0;
     _remoteReady = false;
+    _receivedAudioTrack = false;
+    _iceConnected = false;
+    _routeRetry?.cancel();
+    _routeRetry = null;
     _pendingCandidates.clear();
 
     try {
@@ -371,9 +420,12 @@ class ViewerAudio {
         if (_closed || _epoch != epoch || event.track.kind != 'audio') return;
         if (event.streams.isNotEmpty) {
           _playback?.srcObject = event.streams.first;
+          _receivedAudioTrack = true;
+          onState(false, '오디오 트랙 수신 · 재생 준비 중');
+          unawaited(_activateReceiverOutput(epoch));
+        } else {
+          onState(false, '오디오 트랙에 재생할 MediaStream이 없습니다');
         }
-        unawaited(Helper.setSpeakerphoneOn(true).catchError((Object _) {}));
-        onState(true, '거치폰 소리 수신 중');
       };
       peer.onIceCandidate = (candidate) {
         if (_closed || _epoch != epoch || candidate.candidate == null) return;
@@ -388,10 +440,23 @@ class ViewerAudio {
         final text = state.toString().split('.').last;
         if (text.toLowerCase().contains('failed') ||
             text.toLowerCase().contains('disconnected')) {
+          _iceConnected = false;
           onState(false, '오디오 연결 실패: $text');
         } else if (text.toLowerCase().contains('connected') ||
             text.toLowerCase().contains('completed')) {
-          onState(true, '거치폰 소리 연결됨');
+          _iceConnected = true;
+          if (_receivedAudioTrack) {
+            unawaited(_activateReceiverOutput(epoch));
+            // Some iOS devices need a second route refresh after ICE begins.
+            // This does NOT reconnect video or request microphone permission.
+            _routeRetry?.cancel();
+            _routeRetry = Timer(
+              const Duration(milliseconds: 900),
+              () => unawaited(_activateReceiverOutput(epoch)),
+            );
+          } else {
+            onState(false, '오디오 네트워크 연결 · 트랙 수신 대기');
+          }
         } else {
           onState(false, '오디오 연결 중: $text');
         }
@@ -444,6 +509,10 @@ class ViewerAudio {
   }
 
   Future<void> _closePeer() async {
+    _routeRetry?.cancel();
+    _routeRetry = null;
+    _receivedAudioTrack = false;
+    _iceConnected = false;
     final peer = _peer;
     _peer = null;
     if (peer != null) {
