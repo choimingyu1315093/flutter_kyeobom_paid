@@ -94,6 +94,7 @@ class _KyeobomViewerHomeAdState extends State<KyeobomViewerHomeAd> {
   bool _disposed = false;
   bool _privacyRequired = false;
   bool _consentNeedsAction = false;
+  bool _consentGranted = false;
   KyeobomAdFormat _format = KyeobomAdFormat.banner;
   int _adHeight = 0;
   bool _sdkInitialized = false;
@@ -157,9 +158,13 @@ class _KyeobomViewerHomeAdState extends State<KyeobomViewerHomeAd> {
       final permitted = await ConsentInformation.instance.canRequestAds();
       if (!mounted || _disposed) return;
       if (!permitted) {
-        setState(() => _consentNeedsAction = true);
+        setState(() {
+          _consentGranted = false;
+          _consentNeedsAction = true;
+        });
         return;
       }
+      _consentGranted = true;
       await _loadIfPermitted();
     } catch (error) {
       if (kDebugMode) debugPrint('[kyeobom/ads] $error');
@@ -183,7 +188,10 @@ class _KyeobomViewerHomeAdState extends State<KyeobomViewerHomeAd> {
       if (!mounted) return;
       final permitted = await ConsentInformation.instance.canRequestAds();
       if (!mounted) return;
-      setState(() => _consentNeedsAction = !permitted);
+      setState(() {
+        _consentGranted = permitted;
+        _consentNeedsAction = !permitted;
+      });
       if (permitted) await _loadIfPermitted();
     } catch (error) {
       if (kDebugMode) debugPrint('[kyeobom/ads] consent form: $error');
@@ -202,10 +210,23 @@ class _KyeobomViewerHomeAdState extends State<KyeobomViewerHomeAd> {
       await done.future.timeout(const Duration(seconds: 50));
       if (!mounted) return;
       final permitted = await ConsentInformation.instance.canRequestAds();
+      _consentGranted = permitted;
       if (!permitted) {
-        _clearAd();
-        setState(() => _consentNeedsAction = true);
+        final oldNative = _native;
+        final oldBanner = _banner;
+        setState(() {
+          _loaded = false;
+          _native = null;
+          _banner = null;
+          _consentNeedsAction = true;
+        });
+        // Unmount AdWidget before releasing the native platform view.
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (oldNative != null) unawaited(oldNative.dispose());
+          if (oldBanner != null) unawaited(oldBanner.dispose());
+        });
       } else if (!_loaded) {
+        setState(() => _consentNeedsAction = false);
         await _loadIfPermitted();
       }
     } catch (error) {
@@ -214,7 +235,8 @@ class _KyeobomViewerHomeAdState extends State<KyeobomViewerHomeAd> {
   }
 
   Future<void> _loadIfPermitted() async {
-    if (!mounted || _disposed || _loaded || !_allowed) return;
+    if (!mounted || _disposed || _loaded || !_allowed ||
+        !_consentGranted) return;
     if (!_sdkInitialized) {
       await _initializeSdkOnce();
       _sdkInitialized = true;
@@ -249,7 +271,8 @@ class _KyeobomViewerHomeAdState extends State<KyeobomViewerHomeAd> {
       format: KyeobomAdFormat.native,
       release: kReleaseMode,
     );
-    if (id == null || _native != null || _banner != null) return;
+    if (id == null || _native != null || _banner != null ||
+        !_consentGranted) return;
     _format = KyeobomAdFormat.native;
     final ad = NativeAd(
       adUnitId: id,
@@ -274,8 +297,8 @@ class _KyeobomViewerHomeAdState extends State<KyeobomViewerHomeAd> {
       ),
       listener: NativeAdListener(
         onAdLoaded: (ad) {
-          if (!mounted || _disposed) {
-            ad.dispose();
+          if (!mounted || _disposed || !_consentGranted) {
+            unawaited(ad.dispose());
             return;
           }
           KyeobomAdMetrics.record(KyeobomAdFormat.native, 'loaded');
@@ -321,7 +344,8 @@ class _KyeobomViewerHomeAdState extends State<KyeobomViewerHomeAd> {
       format: KyeobomAdFormat.banner,
       release: kReleaseMode,
     );
-    if (id == null || _banner != null || _loaded || !mounted || _disposed) return;
+    if (id == null || _banner != null || _loaded || !mounted ||
+        _disposed || !_consentGranted) return;
     _format = KyeobomAdFormat.banner;
     final available = (MediaQuery.sizeOf(context).width - 42).clamp(200, 460);
     final size = await AdSize.getLargeAnchoredAdaptiveBannerAdSize(
@@ -334,8 +358,8 @@ class _KyeobomViewerHomeAdState extends State<KyeobomViewerHomeAd> {
       size: size,
       listener: BannerAdListener(
         onAdLoaded: (ad) {
-          if (!mounted || _disposed) {
-            ad.dispose();
+          if (!mounted || _disposed || !_consentGranted) {
+            unawaited(ad.dispose());
             return;
           }
           KyeobomAdMetrics.record(KyeobomAdFormat.banner, 'loaded');
