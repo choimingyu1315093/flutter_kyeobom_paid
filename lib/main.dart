@@ -384,12 +384,17 @@ class _ViewerScreenState extends State<ViewerScreen>
         if (mounted) setState(() => _status = value);
       },
       onMicrophoneState: (active, error) {
-        if (mounted) {
-          setState(() {
-            _microphoneActive = active;
-            _microphoneError = error;
-          });
+        if (!mounted) return;
+        if (active && !_microphoneActive) {
+          // Route the one-way monitoring audio to the viewer's speaker.
+          unawaited(Helper.setSpeakerphoneOn(true).catchError(
+            (Object _) {},
+          ));
         }
+        setState(() {
+          _microphoneActive = active;
+          _microphoneError = error;
+        });
       },
       onRemoteEnded: () => unawaited(_stop(notifyRemote: false)),
     );
