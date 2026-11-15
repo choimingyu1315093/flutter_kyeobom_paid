@@ -24,10 +24,10 @@ class MainActivity : FlutterActivity() {
                     "getViewerLandscapeSide" -> {
                         // Use the actual display rotation, not its width/height:
                         // both landscape orientations have identical dimensions.
+                        @Suppress("DEPRECATION")
                         val rotation = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                             display?.rotation
                         } else {
-                            @Suppress("DEPRECATION")
                             windowManager.defaultDisplay.rotation
                         }
                         result.success(when (rotation) {
