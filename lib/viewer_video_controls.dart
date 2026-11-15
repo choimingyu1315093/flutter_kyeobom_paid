@@ -48,9 +48,9 @@ class _ViewerVideoControlsState extends State<ViewerVideoControls> {
     final center = Offset(viewport.width / 2, viewport.height / 2);
     final sceneCenter = _transformation.toScene(center);
     _transformation.value = Matrix4.identity()
-      ..translate(center.dx, center.dy)
-      ..scale(zoom)
-      ..translate(-sceneCenter.dx, -sceneCenter.dy);
+      ..translateByDouble(center.dx, center.dy, 0, 1)
+      ..scaleByDouble(zoom, zoom, 1, 1)
+      ..translateByDouble(-sceneCenter.dx, -sceneCenter.dy, 0, 1);
   }
 
   void _rotate() {
