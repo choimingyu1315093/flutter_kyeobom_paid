@@ -98,6 +98,14 @@ class KyeobomFullscreenAds {
     _viewerHome = false;
     _live = false;
     _backgroundedAt = null;
+    // Release loaded ad resources when the device changes roles. Station mode
+    // must not keep preloaded advertising content in memory.
+    _discardExpiredAppOpen();
+    _discardInterstitial();
+    final reward = _rewarded;
+    _rewarded = null;
+    rewardedAvailable.value = false;
+    if (reward != null) unawaited(reward.dispose());
   }
 
   void appBackgrounded() {
