@@ -122,7 +122,7 @@ class KyeobomMark extends StatelessWidget {
     final image = Image.asset(
       'assets/branding/app_icon_real.png',
       width: size, height: size, fit: BoxFit.contain,
-      errorBuilder: (_, _, _) => fallback,
+      errorBuilder: (context, error, stackTrace) => fallback,
     );
     return Semantics(label: '켜봄 앱 로고', child: image);
   }
