@@ -10,6 +10,8 @@ void main() {
     expect(find.text('로그인'), findsOneWidget);
     expect(find.text('회원가입'), findsOneWidget);
     expect(find.text('비밀번호 찾기'), findsOneWidget);
+    await tester.ensureVisible(find.text('회원가입'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('회원가입'));
     await tester.pumpAndSettle();
     expect(find.text('계정 만들기'), findsOneWidget);
@@ -18,6 +20,8 @@ void main() {
 
   testWidgets('password reset is a separate screen', (tester) async {
     await tester.pumpWidget(const MaterialApp(home: LoginScreen()));
+    await tester.ensureVisible(find.text('비밀번호 찾기'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('비밀번호 찾기'));
     await tester.pumpAndSettle();
     expect(find.text('비밀번호 재설정 메일 받기'), findsOneWidget);
