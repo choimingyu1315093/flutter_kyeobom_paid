@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'kyeobom_design.dart';
+import 'kyeobom_viewer_ads.dart';
 
 /// Figma screen 3: nearly black waiting surface; camera and mic are
 /// physically OFF in standby. Native wakelock/lifecycle remain in main.dart.
@@ -269,6 +270,10 @@ class KyeobomViewerView extends StatelessWidget {
           const SizedBox(height: 15),
           const Center(child: Text('실시간 보기를 시작하면 가로 화면으로 전환됩니다.',
             style: TextStyle(color: KyeobomPalette.muted, fontSize: 11))),
+          // Revenue exists only on the viewer dashboard. The moment the user
+          // starts connecting or watching, the ad view is disposed.
+          if (!watching && !busy && !leaving)
+            const KyeobomViewerHomeAd(),
         ]),
       ),
     ))),
