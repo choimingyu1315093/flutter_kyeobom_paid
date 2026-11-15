@@ -187,6 +187,7 @@ class KyeobomFullscreenAds {
     final unit = _id(KyeobomAdFormat.interstitial);
     if (unit == null) return;
     _loadInterstitialInProgress = true;
+    KyeobomAdMetrics.record(KyeobomAdFormat.interstitial, 'requested');
     unawaited(InterstitialAd.load(
       adUnitId: unit,
       request: const AdRequest(),
@@ -200,6 +201,8 @@ class KyeobomFullscreenAds {
           _interstitial = ad;
           _interstitialLoadedAt = DateTime.now();
           KyeobomAdMetrics.record(KyeobomAdFormat.interstitial, 'loaded');
+          if (kDebugMode) debugPrint('[kyeobom/ads] interstitial mediation: '
+              '${ad.responseInfo?.mediationAdapterClassName}');
         },
         onAdFailedToLoad: (error) {
           _loadInterstitialInProgress = false;
@@ -233,7 +236,7 @@ class KyeobomFullscreenAds {
       onAdDismissedFullScreenContent: (_) {
         _showing = false;
         unawaited(ad.dispose());
-        if (_viewerHome && !_live) _loadInterstitial();
+        // Daily cap is shared across formats: no more requests today.
       },
       onAdFailedToShowFullScreenContent: (_, error) {
         _showing = false;
@@ -255,6 +258,7 @@ class KyeobomFullscreenAds {
     final unit = _id(KyeobomAdFormat.appOpen);
     if (unit == null) return;
     _loadAppOpenInProgress = true;
+    KyeobomAdMetrics.record(KyeobomAdFormat.appOpen, 'requested');
     unawaited(AppOpenAd.load(
       adUnitId: unit,
       request: const AdRequest(),
@@ -268,6 +272,8 @@ class KyeobomFullscreenAds {
           _appOpen = ad;
           _appOpenLoadedAt = DateTime.now();
           KyeobomAdMetrics.record(KyeobomAdFormat.appOpen, 'loaded');
+          if (kDebugMode) debugPrint('[kyeobom/ads] appopen mediation: '
+              '${ad.responseInfo?.mediationAdapterClassName}');
         },
         onAdFailedToLoad: (error) {
           _loadAppOpenInProgress = false;
@@ -315,7 +321,7 @@ class KyeobomFullscreenAds {
       onAdDismissedFullScreenContent: (_) {
         _showing = false;
         unawaited(ad.dispose());
-        if (_viewerHome && !_live) _loadAppOpen();
+        // The next ad is loaded only when another eligible return is possible.
       },
       onAdFailedToShowFullScreenContent: (_, error) {
         _showing = false;
@@ -339,6 +345,7 @@ class KyeobomFullscreenAds {
     final unit = _id(KyeobomAdFormat.rewarded);
     if (unit == null) return;
     _loadRewardedInProgress = true;
+    KyeobomAdMetrics.record(KyeobomAdFormat.rewarded, 'requested');
     unawaited(RewardedAd.load(
       adUnitId: unit,
       request: const AdRequest(),
@@ -352,6 +359,8 @@ class KyeobomFullscreenAds {
           _rewarded = ad;
           rewardedAvailable.value = true;
           KyeobomAdMetrics.record(KyeobomAdFormat.rewarded, 'loaded');
+          if (kDebugMode) debugPrint('[kyeobom/ads] rewarded mediation: '
+              '${ad.responseInfo?.mediationAdapterClassName}');
         },
         onAdFailedToLoad: (error) {
           _loadRewardedInProgress = false;
