@@ -37,11 +37,23 @@ class RemoteControl {
         'commandId': '',
         'updatedAt': FieldValue.serverTimestamp(),
         'onlineHint': true,
+        'status': 'camera_off',
       });
 
-  Future<void> send(String command) => station.set({
-        'command': command,
-        'commandId': DateTime.now().microsecondsSinceEpoch.toString(),
+  DocumentReference<Map<String, dynamic>> session(String id) =>
+      station.collection('sessions').doc(id);
+
+  Future<void> requestStart(String id) => station.set({
+        'command': 'start',
+        'sessionId': id,
+        'commandId': id,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+  Future<void> requestStop(String id) => station.set({
+        'command': 'stop',
+        'sessionId': id,
+        'commandId': 'stop-' + DateTime.now().microsecondsSinceEpoch.toString(),
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
 
