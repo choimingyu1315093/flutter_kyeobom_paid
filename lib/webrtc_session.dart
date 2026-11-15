@@ -32,6 +32,10 @@ class HomeCamWebRtcSession {
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _sessionSub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _candidatesSub;
   final List<RTCIceCandidate> _candidateQueue = [];
+  Timer? _viewerHeartbeat;
+  Timer? _stationWatchdog;
+  DateTime? _lastHeartbeatReceived;
+  int? _lastHeartbeatVersion;
 
   String? _sessionId;
   bool _viewer = false;
@@ -136,6 +140,7 @@ class HomeCamWebRtcSession {
       await doc.set({
         'state': 'creating_offer',
         'createdAt': FieldValue.serverTimestamp(),
+        'viewerHeartbeatAt': FieldValue.serverTimestamp(),
       });
       _watchCandidates(id, 'stationCandidates');
       _sessionSub = doc.snapshots().listen((snapshot) async {
@@ -179,6 +184,14 @@ class HomeCamWebRtcSession {
         'state': 'offered',
       });
       await RemoteControl.instance.requestStart(id);
+      _viewerHeartbeat = Timer.periodic(const Duration(seconds: 10), (_) {
+        if (_closing || _sessionId != id) return;
+        unawaited(doc.set({
+          'viewerHeartbeatAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true)).catchError((Object error) {
+          if (!_closing) onStatus('연결 유지 신호 오류: $error');
+        }));
+      });
       onStatus('거치폰의 연결 응답을 기다리는 중');
     } catch (_) {
       await end();
@@ -209,11 +222,32 @@ class HomeCamWebRtcSession {
 
       await _newPeer();
       _watchCandidates(id, 'viewerCandidates');
-      _sessionSub = doc.snapshots().listen((snapshot) {
+      _lastHeartbeatReceived = DateTime.now();
+      _stationWatchdog = Timer.periodic(const Duration(seconds: 10), (_) {
         if (_closing || _sessionId != id) return;
-        if (snapshot.data()?['state'] == 'ended') {
+        final last = _lastHeartbeatReceived;
+        if (last != null && DateTime.now().difference(last) >
+            const Duration(seconds: 45)) {
+          _stationWatchdog?.cancel();
+          onStatus('뷰어 연결이 끊어져 카메라를 종료합니다');
           onRemoteEnded?.call();
         }
+      });
+      _sessionSub = doc.snapshots().listen((snapshot) {
+        if (_closing || _sessionId != id) return;
+        final data = snapshot.data();
+        final heartbeat = data?['viewerHeartbeatAt'];
+        if (heartbeat is Timestamp) {
+          final time = heartbeat.toDate().millisecondsSinceEpoch;
+          if (_lastHeartbeatVersion != time) {
+            _lastHeartbeatVersion = time;
+            if (DateTime.now().difference(heartbeat.toDate()) <
+                const Duration(seconds: 45)) {
+              _lastHeartbeatReceived = DateTime.now();
+            }
+          }
+        }
+        if (data?['state'] == 'ended') onRemoteEnded?.call();
       }, onError: (Object error) {
         if (!_closing) onStatus('시그널링 수신 오류: $error');
       });
@@ -264,6 +298,12 @@ class HomeCamWebRtcSession {
     await _candidatesSub?.cancel();
     _candidatesSub = null;
     _candidateQueue.clear();
+    _viewerHeartbeat?.cancel();
+    _viewerHeartbeat = null;
+    _stationWatchdog?.cancel();
+    _stationWatchdog = null;
+    _lastHeartbeatReceived = null;
+    _lastHeartbeatVersion = null;
     _remoteDescriptionSet = false;
     _answerInProgress = false;
 
