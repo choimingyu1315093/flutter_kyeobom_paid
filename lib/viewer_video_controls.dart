@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 
 /// Digital zoom and pan of the received WebRTC pixels only.
 ///
-/// Screen orientation is handled by the viewer page, not by rotating pixels.
+/// Incoming frame orientation is corrected outside this widget, then pinch,
+/// pan and digital zoom work on the corrected image.
 class ViewerVideoControls extends StatefulWidget {
   const ViewerVideoControls({super.key, required this.video});
 
