@@ -217,7 +217,15 @@ class _KyeobomViewerHomeAdState extends State<KyeobomViewerHomeAd> {
         MediaQuery.sizeOf(context).width >= 345) {
       _loadNative();
     } else {
-      unawaited(_loadBanner());
+      await _loadBannerSafely();
+    }
+  }
+
+  Future<void> _loadBannerSafely() async {
+    try {
+      await _loadBanner();
+    } catch (error) {
+      if (kDebugMode) debugPrint('[kyeobom/ads] banner setup: $error');
     }
   }
 
@@ -268,7 +276,7 @@ class _KyeobomViewerHomeAdState extends State<KyeobomViewerHomeAd> {
           if (!mounted || _disposed) return;
           _native = null;
           if (kDebugMode) debugPrint('[kyeobom/ads] native: $error');
-          unawaited(_loadBanner()); // Fallback only, never duplicate ads.
+          unawaited(_loadBannerSafely()); // Fallback, never duplicate ads.
         },
         onAdImpression: (_) =>
             KyeobomAdMetrics.record(KyeobomAdFormat.native, 'impression'),
@@ -282,7 +290,15 @@ class _KyeobomViewerHomeAdState extends State<KyeobomViewerHomeAd> {
       ),
     );
     _native = ad;
-    unawaited(ad.load());
+    unawaited(ad.load().catchError((Object error) {
+      if (kDebugMode) debugPrint('[kyeobom/ads] native load: $error');
+      if (_native == ad) {
+        _native = null;
+        KyeobomAdMetrics.record(KyeobomAdFormat.native, 'failed');
+        unawaited(ad.dispose());
+        if (mounted && !_disposed) unawaited(_loadBannerSafely());
+      }
+    }));
   }
 
   Future<void> _loadBanner() async {
@@ -333,7 +349,14 @@ class _KyeobomViewerHomeAdState extends State<KyeobomViewerHomeAd> {
       ),
     );
     _banner = ad;
-    unawaited(ad.load());
+    unawaited(ad.load().catchError((Object error) {
+      if (kDebugMode) debugPrint('[kyeobom/ads] banner load: $error');
+      if (_banner == ad) {
+        _banner = null;
+        KyeobomAdMetrics.record(KyeobomAdFormat.banner, 'failed');
+        unawaited(ad.dispose());
+      }
+    }));
   }
 
   void _clearAd() {
