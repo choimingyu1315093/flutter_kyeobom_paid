@@ -22,6 +22,10 @@ void main() {
   );
 
   testWidgets('viewer dashboard is the ONLY ad placement', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     await tester.pumpWidget(MaterialApp(home: createViewer()));
     expect(find.byType(KyeobomViewerHomeAd), findsOneWidget);
     expect(find.text('실시간 보기'), findsOneWidget);
@@ -34,6 +38,19 @@ void main() {
       MaterialApp(home: createViewer(busy: true)),
     );
     expect(find.byType(KyeobomViewerHomeAd), findsNothing);
+  });
+
+  testWidgets('compact viewer moves the ad into scroll instead of blocking CTA',
+      (tester) async {
+    tester.view.physicalSize = const Size(390, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(MaterialApp(home: createViewer()));
+    expect(find.byType(KyeobomViewerHomeAd), findsOneWidget);
+    final scaffold = tester.widget<Scaffold>(find.byType(Scaffold));
+    expect(scaffold.bottomNavigationBar, isNull);
+    expect(find.text('실시간 보기'), findsOneWidget);
   });
 
   testWidgets('ads unmount before live video and remain absent in landscape',
