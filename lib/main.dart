@@ -52,7 +52,8 @@ class RoleSelectionScreen extends StatelessWidget {
         title: const Text('홈캠 대기 모드가 시작됩니다.'),
         content: const Text(
           '화면은 어둡게 유지되며 자동으로 잠기지 않습니다.\n\n'
-          '안정적인 원격 연결을 위해 충전기를 연결하고 앱을 실행 상태로 유지해 주세요.',
+          '안정적인 원격 연결을 위해 충전기를 연결하고 앱을 실행 상태로 유지해 주세요.\n\n'
+          '거치폰 마이크는 기본 OFF입니다. 마이크 권한을 허용한 경우에만 뷰어에서 소리 듣기를 켤 수 있습니다.',
         ),
         actions: [
           TextButton(
@@ -121,6 +122,9 @@ class _StationScreenState extends State<StationScreen>
   bool _foreground = true;
   bool _streaming = false;
   bool _leaving = false;
+  bool _microphoneActive = false;
+  bool _preparingMicrophone = false;
+  bool _micPermissionReady = false;
 
   @override
   void initState() {
@@ -128,6 +132,13 @@ class _StationScreenState extends State<StationScreen>
     _rtc = HomeCamWebRtcSession(
       onStatus: (value) {
         if (mounted) setState(() => _status = value);
+      },
+      onMicrophoneState: (active, error) {
+        if (!mounted) return;
+        setState(() {
+          _microphoneActive = active;
+          if (error != null) _status = '마이크 오류: $error';
+        });
       },
       onRemoteEnded: () {
         _commandQueue = _commandQueue.then((_) => _finishStream()).catchError(
@@ -225,11 +236,30 @@ class _StationScreenState extends State<StationScreen>
     }
   }
 
+  Future<void> _prepareMicrophone() async {
+    if (_preparingMicrophone || _leaving) return;
+    setState(() => _preparingMicrophone = true);
+    try {
+      await HomeCamWebRtcSession.prepareMicrophonePermission();
+      if (mounted) {
+        setState(() {
+          _micPermissionReady = true;
+          _status = '마이크 권한 준비 완료 · 현재 마이크 OFF';
+        });
+      }
+    } catch (error) {
+      if (mounted) setState(() => _status = '마이크 권한 준비 실패: $error');
+    } finally {
+      if (mounted) setState(() => _preparingMicrophone = false);
+    }
+  }
+
   Future<void> _finishStream() async {
     if (_rtc.isRunning) await _rtc.end();
     if (mounted && !_leaving) {
       setState(() {
         _streaming = false;
+        _microphoneActive = false;
         _status = '연결 대기 중';
       });
     }
@@ -297,11 +327,23 @@ class _StationScreenState extends State<StationScreen>
                 const SizedBox(height: 12),
                 Text(
                   _streaming
-                      ? '후면 카메라 ON · 마이크 OFF · 녹화 OFF'
+                      ? '후면 카메라 ON · 마이크 ${_microphoneActive ? "ON" : "OFF"} · 녹화 OFF'
                       : '카메라 OFF · 마이크 OFF · 녹화 OFF',
                   style: const TextStyle(color: Colors.white30, fontSize: 12),
                 ),
-                const SizedBox(height: 28),
+                const SizedBox(height: 12),
+                if (!_streaming)
+                  TextButton.icon(
+                    onPressed: _preparingMicrophone ? null : _prepareMicrophone,
+                    icon: Icon(_micPermissionReady
+                        ? Icons.check_circle_outline : Icons.mic_none),
+                    label: Text(_preparingMicrophone
+                        ? '마이크 권한 확인 중'
+                        : _micPermissionReady
+                            ? '마이크 권한 준비됨 (현재 OFF)'
+                            : '마이크 권한 미리 허용 (선택)'),
+                  ),
+                const SizedBox(height: 16),
                 TextButton(
                   onPressed: _leaving ? null : _leave,
                   child: const Text('대기 종료'),
@@ -327,6 +369,11 @@ class _ViewerScreenState extends State<ViewerScreen>
   bool _busy = false;
   bool _watching = false;
   bool _leaving = false;
+  bool _landscapeForced = false;
+  bool _microphoneRequested = false;
+  bool _microphoneActive = false;
+  bool _microphoneBusy = false;
+  String? _microphoneError;
 
   @override
   void initState() {
@@ -336,8 +383,54 @@ class _ViewerScreenState extends State<ViewerScreen>
       onStatus: (value) {
         if (mounted) setState(() => _status = value);
       },
+      onMicrophoneState: (active, error) {
+        if (mounted) {
+          setState(() {
+            _microphoneActive = active;
+            _microphoneError = error;
+          });
+        }
+      },
       onRemoteEnded: () => unawaited(_stop(notifyRemote: false)),
     );
+  }
+
+  Future<void> _setLandscapeMode() async {
+    final next = !_landscapeForced;
+    try {
+      await SystemChrome.setPreferredOrientations(next
+          ? [DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight]
+          : []);
+      if (mounted) setState(() => _landscapeForced = next);
+    } catch (error) {
+      if (mounted) setState(() => _status = '화면 방향 변경 오류: $error');
+    }
+  }
+
+  Future<void> _restoreRotationPreference() =>
+      SystemChrome.setPreferredOrientations([]);
+
+  Future<void> _setMicrophone(bool enabled) async {
+    if (!_watching || _busy || _microphoneBusy) return;
+    setState(() {
+      _microphoneBusy = true;
+      _microphoneError = null;
+    });
+    try {
+      await _rtc.requestMicrophone(enabled);
+      if (mounted) {
+        setState(() {
+          _microphoneRequested = enabled;
+          _status = enabled
+              ? '거치폰 마이크 활성화 요청 중'
+              : '거치폰 마이크 종료 요청 중';
+        });
+      }
+    } catch (error) {
+      if (mounted) setState(() => _microphoneError = '$error');
+    } finally {
+      if (mounted) setState(() => _microphoneBusy = false);
+    }
   }
 
   Future<void> _start() async {
@@ -345,6 +438,9 @@ class _ViewerScreenState extends State<ViewerScreen>
     setState(() {
       _busy = true;
       _status = '거치폰 연결 요청 중';
+      _microphoneRequested = false;
+      _microphoneActive = false;
+      _microphoneError = null;
     });
     try {
       await _rtc.startViewer();
@@ -362,6 +458,9 @@ class _ViewerScreenState extends State<ViewerScreen>
     setState(() {
       _busy = true;
       _watching = false;
+      _microphoneRequested = false;
+      _microphoneActive = false;
+      _microphoneError = null;
     });
     try {
       await _rtc.end(notifyRemote: notifyRemote);
@@ -369,7 +468,7 @@ class _ViewerScreenState extends State<ViewerScreen>
         await RemoteControl.instance.requestStop(sessionId);
       }
       if (mounted && !_leaving) {
-        setState(() => _status = '영상 종료 · 카메라 정리 요청 완료');
+        setState(() => _status = '영상 종료 · 카메라와 마이크 정리 요청 완료');
       }
     } catch (error) {
       if (mounted) setState(() => _status = '종료 오류: $error');
@@ -388,6 +487,7 @@ class _ViewerScreenState extends State<ViewerScreen>
         await RemoteControl.instance.requestStop(sessionId);
       }
     } finally {
+      await _restoreRotationPreference();
       if (mounted) Navigator.of(context).pop();
     }
   }
@@ -403,51 +503,134 @@ class _ViewerScreenState extends State<ViewerScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     unawaited(_rtc.end());
+    if (_landscapeForced) unawaited(_restoreRotationPreference());
     super.dispose();
   }
 
+  Widget _video() {
+    final renderer = _rtc.renderer;
+    return Container(
+      color: Colors.black,
+      alignment: Alignment.center,
+      child: _watching && renderer != null
+          ? ViewerVideoControls(
+              video: RTCVideoView(
+                renderer,
+                objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitContain,
+              ),
+            )
+          : const Icon(Icons.videocam_off_outlined,
+              size: 60, color: Colors.white38),
+    );
+  }
+
+  Widget _actions({required bool compact}) => Wrap(
+        spacing: 8,
+        runSpacing: 6,
+        alignment: WrapAlignment.center,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          OutlinedButton.icon(
+            onPressed: _setLandscapeMode,
+            icon: Icon(_landscapeForced ? Icons.screen_rotation : Icons.screen_lock_landscape),
+            label: Text(_landscapeForced ? '자동 회전' : '가로 보기'),
+          ),
+          if (!_watching)
+            FilledButton.icon(
+              onPressed: _busy ? null : _start,
+              icon: const Icon(Icons.play_arrow),
+              label: Text(compact ? '시작' : '실시간 보기 시작'),
+            ),
+          if (_watching)
+            FilledButton.icon(
+              onPressed: _busy ? null : _stop,
+              icon: const Icon(Icons.stop),
+              label: Text(compact ? '종료' : '실시간 보기 종료'),
+            ),
+          if (_watching)
+            OutlinedButton.icon(
+              onPressed: _busy || _microphoneBusy
+                  ? null
+                  : () => _setMicrophone(!_microphoneRequested),
+              icon: Icon(_microphoneRequested ? Icons.mic : Icons.mic_off),
+              label: Text(_microphoneRequested ? '마이크 끄기' : '소리 듣기'),
+            ),
+        ],
+      );
+
   @override
   Widget build(BuildContext context) {
-    final renderer = _rtc.renderer;
+    final landscape = MediaQuery.orientationOf(context) == Orientation.landscape;
     return PopScope(
       canPop: _leaving,
       onPopInvokedWithResult: (didPop, result) {
         if (!didPop) unawaited(_leave());
       },
       child: Scaffold(
-        appBar: AppBar(title: const Text('홈캠 실시간 보기')),
+        appBar: landscape ? null : AppBar(title: const Text('홈캠 실시간 보기')),
         body: SafeArea(
-          child: Column(children: [
-            Expanded(
-              child: Container(
-                color: Colors.black,
-                alignment: Alignment.center,
-                child: _watching && renderer != null
-                    ? ViewerVideoControls(
-                        video: RTCVideoView(renderer),
-                      )
-                    : const Icon(Icons.videocam_off_outlined,
-                        size: 60, color: Colors.white38),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
-              child: Column(children: [
-                Text(_status, textAlign: TextAlign.center),
-                const SizedBox(height: 12),
-                FilledButton(
-                  onPressed: _busy || _watching ? null : _start,
-                  child: const Text('실시간 보기 시작'),
-                ),
-                OutlinedButton(
-                  onPressed: _busy || !_watching ? null : _stop,
-                  child: const Text('실시간 보기 종료'),
-                ),
-                const Text('영상만 전송 · 마이크 및 녹화 OFF',
-                    style: TextStyle(fontSize: 12, color: Colors.white54)),
-              ]),
-            ),
-          ]),
+          child: landscape
+              ? Stack(
+                  children: [
+                    Positioned.fill(child: _video()),
+                    Positioned(
+                      left: 8,
+                      top: 8,
+                      child: IconButton.filledTonal(
+                        tooltip: '뒤로',
+                        onPressed: _leave,
+                        icon: const Icon(Icons.arrow_back),
+                      ),
+                    ),
+                    Positioned(
+                      left: 70,
+                      right: 8,
+                      top: 12,
+                      child: Text(_microphoneError ?? _status,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: Colors.white70)),
+                    ),
+                    Positioned(
+                      left: 12,
+                      bottom: 10,
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          maxWidth: MediaQuery.sizeOf(context).width * 0.64,
+                        ),
+                        child: _actions(compact: true),
+                      ),
+                    ),
+                    if (_microphoneActive)
+                      const Positioned(
+                        right: 12,
+                        top: 8,
+                        child: Chip(label: Text('거치폰 마이크 ON')),
+                      ),
+                  ],
+                )
+              : Column(children: [
+                  Expanded(child: _video()),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 12, 12, 20),
+                    child: Column(children: [
+                      Text(_microphoneError ?? _status,
+                          textAlign: TextAlign.center),
+                      if (_watching)
+                        Text(
+                          _microphoneActive
+                              ? '거치폰 소리 수신 중'
+                              : '거치폰 마이크 OFF',
+                          style: const TextStyle(color: Colors.white60),
+                        ),
+                      const SizedBox(height: 10),
+                      _actions(compact: false),
+                      const SizedBox(height: 8),
+                      const Text('확대·축소: 두 손가락 · 최대 4배',
+                          style: TextStyle(fontSize: 12, color: Colors.white54)),
+                    ]),
+                  ),
+                ]),
         ),
       ),
     );
