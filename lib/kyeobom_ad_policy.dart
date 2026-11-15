@@ -40,8 +40,8 @@ abstract final class KyeobomAdPolicy {
   static bool _valid(String text, {required bool appId}) {
     if (text.isEmpty || text.startsWith(_demoPrefix)) return false;
     return appId
-        ? RegExp(r'^ca-app-pub-[0-9]{16}~[0-9]{10}
-        : RegExp(r'^ca-app-pub-[0-9]{16}/[0-9]{10}
+        ? RegExp(r'^ca-app-pub-[0-9]{16}~[0-9]{10}$').hasMatch(text)
+        : RegExp(r'^ca-app-pub-[0-9]{16}/[0-9]{10}$').hasMatch(text);
   }
 
   static bool supportsPlatform(TargetPlatform platform) =>
