@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 import 'remote_control.dart';
@@ -112,6 +113,9 @@ class HomeCamWebRtcSession {
       return;
     }
     // Reserve the slot first so concurrent timer calls never duplicate writes.
+    if (_lastFirestoreFallback == null && kDebugMode) {
+      debugPrint('[kyeobom/cost] Firestore fallback active (legacy/no ACK)');
+    }
     _lastFirestoreFallback = now;
     try {
       await _session(id).set({
@@ -136,6 +140,9 @@ class HomeCamWebRtcSession {
         _lastHeartbeatReceived = DateTime.now();
         if (!_directHeartbeatConfirmed) {
           _directHeartbeatConfirmed = true;
+          if (kDebugMode) {
+            debugPrint('[kyeobom/cost] station P2P heartbeat received');
+          }
           onStatus('직접 연결 유지 정상 · 서버 반복 쓰기 없음');
         }
         // Acknowledge receipt to let the viewer suppress legacy Firestore
@@ -234,6 +241,9 @@ class HomeCamWebRtcSession {
           return;
         }
         if (HomeCamCostPolicy.isAcknowledgementForSession(message.text, id)) {
+          if (_lastDirectAck == null && kDebugMode) {
+            debugPrint('[kyeobom/cost] viewer direct ACK (no DB keepalive writes)');
+          }
           _lastDirectAck = DateTime.now();
         }
       };
