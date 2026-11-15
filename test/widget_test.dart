@@ -3,10 +3,24 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_home_camera/main.dart';
 
 void main() {
-  testWidgets('Home Camera role selection screen renders', (tester) async {
+  testWidgets('Station start notice must be confirmed', (tester) async {
     await tester.pumpWidget(const MaterialApp(home: RoleSelectionScreen()));
-    expect(find.text('이 기기의 역할을 선택하세요'), findsOneWidget);
+
     expect(find.text('거치폰 · 카메라 대기'), findsOneWidget);
     expect(find.text('뷰어폰 · 실시간 보기'), findsOneWidget);
+
+    await tester.tap(find.text('거치폰 · 카메라 대기'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('홈캠 대기 모드가 시작됩니다.'), findsOneWidget);
+    expect(
+      find.textContaining('충전기를 연결하고 앱을 실행 상태로 유지해 주세요.'),
+      findsOneWidget,
+    );
+    expect(find.text('대기 시작'), findsOneWidget);
+
+    await tester.tap(find.text('취소'));
+    await tester.pumpAndSettle();
+    expect(find.text('거치폰 · 카메라 대기'), findsOneWidget);
   });
 }
