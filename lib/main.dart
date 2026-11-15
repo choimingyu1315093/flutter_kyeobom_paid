@@ -79,79 +79,72 @@ class RoleSelectionScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(
-          title: const Text('켜봄',
-              style: TextStyle(
-                color: KyeobomPalette.ink,
-                fontWeight: FontWeight.w800,
-              )),
-        ),
-        body: SafeArea(
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 480),
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(24, 34, 24, 24),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const KyeobomMark(size: 74),
-                    const SizedBox(height: 36),
-                    const KyeobomEyebrow('START WITH KYEOBOM'),
-                    const SizedBox(height: 16),
-                    const Text(
-                      '이 스마트폰은\n어떻게 사용할까요?',
-                      style: TextStyle(
-                        color: KyeobomPalette.ink,
-                        fontSize: 29,
-                        fontWeight: FontWeight.w800,
-                        height: 1.28,
-                        letterSpacing: -0.9,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    const Text(
-                      '사용할 역할을 선택해 주세요.',
-                      style: TextStyle(color: KyeobomPalette.muted, fontSize: 14),
-                    ),
-                    const SizedBox(height: 40),
-                    KyeobomRoleCard(
-                      icon: Icons.videocam_outlined,
-                      title: '홈캠으로 사용',
-                      subtitle: '집에 두고 카메라를 대기시켜요.',
-                      featured: true,
-                      onTap: () => _openStation(context),
-                    ),
-                    const SizedBox(height: 14),
-                    KyeobomRoleCard(
-                      icon: Icons.visibility_outlined,
-                      title: '홈캠 보기',
-                      subtitle: '다른 곳에서 실시간으로 확인해요.',
-                      onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (_) => const ViewerScreen(),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 30),
-                    const Center(
-                      child: Text(
-                        '홈캠으로 사용하는 스마트폰은\n충전기에 연결해 주세요.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: KyeobomPalette.muted,
-                          fontSize: 12,
-                          height: 1.55,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+    appBar: AppBar(
+      leading: Navigator.of(context).canPop()
+          ? IconButton(
+              icon: const Icon(Icons.chevron_left_rounded),
+              onPressed: () => Navigator.of(context).pop(),
+            )
+          : const Icon(Icons.videocam_outlined, size: 21),
+      title: const Text('기기 역할 선택',
+        style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+    ),
+    body: SafeArea(child: Center(child: ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 480),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(22, 24, 22, 25),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const KyeobomEyebrow('STEP 02 · DEVICE ROLE'),
+          const SizedBox(height: 13),
+          const Text('이 스마트폰은\n어떻게 사용하실까요?',
+            style: TextStyle(color: KyeobomPalette.ink, fontSize: 27,
+              height: 1.24, fontWeight: FontWeight.w800,
+              letterSpacing: -1)),
+          const SizedBox(height: 10),
+          const Text('기기의 사용 목적을 선택해 주세요.\n선택 후에도 역할을 바꿀 수 있어요.',
+            style: TextStyle(color: KyeobomPalette.muted,
+              fontSize: 13, height: 1.5)),
+          const SizedBox(height: 25),
+          KyeobomRoleCard(
+            icon: Icons.videocam_rounded,
+            title: '홈캠으로 사용',
+            subtitle: '집에 있는 스마트폰을 홈캠으로 사용하고\n필요할 때 다른 스마트폰으로 확인해요.',
+            featured: true,
+            onTap: () => _openStation(context),
+          ),
+          const SizedBox(height: 14),
+          KyeobomRoleCard(
+            icon: Icons.visibility_outlined,
+            title: '홈캠 보기',
+            subtitle: '다른 기기에 연결된 홈캠의 영상을\n실시간으로 확인할 수 있어요.',
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const ViewerScreen()),
             ),
           ),
-        ),
-      );
+          const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              border: Border.all(color: KyeobomPalette.border),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Row(children: [
+              Icon(Icons.info_outline_rounded,
+                color: KyeobomPalette.blue, size: 19),
+              SizedBox(width: 10),
+              Expanded(child: Text(
+                '안정적인 연결을 위해 홈캠으로 사용할 스마트폰은 '
+                '충전기를 연결하고 앱을 실행 상태로 유지해 주세요.',
+                style: TextStyle(fontSize: 11, height: 1.5,
+                  color: KyeobomPalette.muted),
+              )),
+            ]),
+          ),
+        ]),
+      ),
+    ))),
+  );
 }
 
 class StationScreen extends StatefulWidget {
