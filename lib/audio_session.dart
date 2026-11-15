@@ -335,10 +335,12 @@ class ViewerAudio {
     if (_closed || _epoch != epoch) return;
     try {
       if (defaultTargetPlatform == TargetPlatform.iOS) {
+        // remoteOnly uses the media playback audio route by default. Avoid a
+        // speakerphone override intended for the playAndRecord call category.
         await Helper.ensureAudioSession();
+      } else {
+        await Helper.setSpeakerphoneOn(true);
       }
-      if (_closed || _epoch != epoch) return;
-      await Helper.setSpeakerphoneOn(true);
       if (!_closed && _epoch == epoch && _receivedAudioTrack && _iceConnected) {
         onState(true, '거치폰 소리 수신 중');
       }
