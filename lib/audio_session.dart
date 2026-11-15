@@ -339,8 +339,16 @@ class ViewerAudio {
         }));
       };
       peer.onIceConnectionState = (state) {
-        if (!_closed && _epoch == epoch) {
-          onState(true, '오디오 연결: ${state.toString().split('.').last}');
+        if (_closed || _epoch != epoch) return;
+        final text = state.toString().split('.').last;
+        if (text.toLowerCase().contains('failed') ||
+            text.toLowerCase().contains('disconnected')) {
+          onState(false, '오디오 연결 실패: $text');
+        } else if (text.toLowerCase().contains('connected') ||
+            text.toLowerCase().contains('completed')) {
+          onState(true, '거치폰 소리 연결됨');
+        } else {
+          onState(false, '오디오 연결 중: $text');
         }
       };
 
@@ -355,7 +363,7 @@ class ViewerAudio {
         'audioAnswer': {'type': answer.type, 'sdp': answer.sdp},
         'audioState': 'answer_ready',
       });
-      onState(true, '거치폰 마이크 연결 중');
+      onState(false, '거치폰 마이크 연결 중');
     } catch (error) {
       onState(false, '오디오 연결 실패: $error');
       await _closePeer();
