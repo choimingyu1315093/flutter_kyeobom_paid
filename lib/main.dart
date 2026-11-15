@@ -15,6 +15,7 @@ import 'video_orientation.dart';
 import 'viewer_video_controls.dart';
 import 'kyeobom_design.dart';
 import 'kyeobom_screens.dart';
+import 'kyeobom_viewer_ads.dart';
 import 'kyeobom_auth_screens.dart';
 import 'kyeobom_station_start_dialog.dart';
 import 'homecam_session_housekeeping.dart';
@@ -36,8 +37,9 @@ class HomeCameraApp extends StatelessWidget {
   const HomeCameraApp({super.key});
 
   @override
-  Widget build(BuildContext context) => MaterialApp(
-        title: '켜봄',
+  Widget build(BuildContext context) => KyeobomAdsRuntime(
+        child: MaterialApp(
+          title: '켜봄',
         debugShowCheckedModeBanner: false,
         theme: KyeobomTheme.light,
         routes: {'/roles': (_) => const RoleSelectionScreen()},
@@ -50,6 +52,7 @@ class HomeCameraApp extends StatelessWidget {
             : FirebaseAuth.instance.currentUser == null
                 ? const LoginScreen()
                 : const RoleSelectionScreen(),
+        ),
       );
 }
 
