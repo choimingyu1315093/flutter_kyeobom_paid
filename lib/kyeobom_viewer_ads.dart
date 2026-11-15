@@ -8,6 +8,19 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'kyeobom_ad_policy.dart';
 import 'kyeobom_design.dart';
 
+/// Production app enables ad requests explicitly at its root.
+/// Standalone widget tests and previews can render the same dashboard without
+/// invoking native UMP/AdMob method channels or holding background timers.
+class KyeobomAdsRuntime extends InheritedWidget {
+  const KyeobomAdsRuntime({super.key, required super.child});
+
+  static bool enabled(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<KyeobomAdsRuntime>() != null;
+
+  @override
+  bool updateShouldNotify(KyeobomAdsRuntime oldWidget) => false;
+}
+
 /// Local-only QA/A-B counters. No Firebase writes and NO camera data.
 /// AdMob's own dashboard remains authoritative for actual settlement.
 abstract final class KyeobomAdMetrics {
@@ -85,7 +98,8 @@ class _KyeobomViewerHomeAdState extends State<KyeobomViewerHomeAd> {
   int _adHeight = 0;
   bool _sdkInitialized = false;
 
-  bool get _allowed => KyeobomAdPolicy.isEnabled(
+  bool get _allowed => KyeobomAdsRuntime.enabled(context) &&
+      KyeobomAdPolicy.isEnabled(
         platform: defaultTargetPlatform,
         release: kReleaseMode,
       );
