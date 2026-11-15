@@ -10,6 +10,10 @@
 	<string>거치폰의 후면 카메라로 실시간 영상을 제공하기 위해 사용합니다.</string>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<!-- Official AdMob sample app ID: test ads only.
+	     Replace this ID with your own registered AdMob iOS app ID for release. -->
+	<key>GADApplicationIdentifier</key>
+	<string>ca-app-pub-3940256099942544~1458002511</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
