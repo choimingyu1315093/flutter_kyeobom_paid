@@ -53,10 +53,10 @@ class HomeCamWebRtcSession {
   Future<void> _newPeer() async {
     _peer = await createPeerConnection(_iceConfig);
     _peer!.onIceConnectionState = (state) {
-      if (!_closing) onStatus('ICE 연결: ' + state.toString().split('.').last);
+      if (!_closing) onStatus('ICE 연결: ${state.toString().split('.').last}');
     };
     _peer!.onConnectionState = (state) {
-      if (!_closing) onStatus('WebRTC: ' + state.toString().split('.').last);
+      if (!_closing) onStatus('WebRTC: ${state.toString().split('.').last}');
     };
     _peer!.onIceCandidate = (candidate) {
       final id = _sessionId;
