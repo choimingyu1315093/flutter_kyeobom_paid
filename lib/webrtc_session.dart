@@ -41,6 +41,7 @@ class HomeCamWebRtcSession {
 
   RTCVideoRenderer? get renderer => _remoteRenderer;
   bool get isRunning => _sessionId != null;
+  String? get sessionId => _sessionId;
 
   DocumentReference<Map<String, dynamic>> _session(String id) =>
       RemoteControl.instance.session(id);
