@@ -89,6 +89,20 @@ class RoleSelectionScreen extends StatelessWidget {
           : const Icon(Icons.videocam_outlined, size: 21),
       title: const Text('기기 역할 선택',
         style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+      actions: [
+        IconButton(
+          tooltip: '로그아웃',
+          icon: const Icon(Icons.logout_rounded, size: 19),
+          onPressed: () async {
+            await FirebaseAuth.instance.signOut();
+            if (!context.mounted) return;
+            Navigator.of(context).pushReplacement(
+              MaterialPageRoute<void>(builder: (_) => const LoginScreen()),
+            );
+          },
+        ),
+        const SizedBox(width: 5),
+      ],
     ),
     body: SafeArea(child: Center(child: ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 480),
