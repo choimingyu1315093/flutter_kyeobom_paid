@@ -29,13 +29,14 @@ String tuneMonitoringOpus(String? sdp) {
       }
     }
     values.addAll(tuning);
-    lines[fmtpIndex] = 'a=fmtp:$pt ' +
-        values.entries.map((e) => e.key + '=' + e.value).join(';');
+    final paramsText = values.entries
+        .map((entry) => '${entry.key}=${entry.value}')
+        .join(';');
+    lines[fmtpIndex] = 'a=fmtp:$pt $paramsText';
   } else {
     lines.insert(
       index + 1,
-      'a=fmtp:$pt ' +
-          tuning.entries.map((e) => e.key + '=' + e.value).join(';'),
+      'a=fmtp:$pt ${tuning.entries.map((entry) => '${entry.key}=${entry.value}').join(';')}',
     );
   }
   return lines.join(newline);
