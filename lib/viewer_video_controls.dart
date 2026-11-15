@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 
-/// Viewer-only digital zoom and video rotation.
+/// Digital zoom and pan of the received WebRTC pixels only.
 ///
-/// This widget transforms the received pixels. It does not request a different
-/// camera lens, control the station camera, or change WebRTC transmission.
+/// Screen orientation is handled by the viewer page, not by rotating pixels.
 class ViewerVideoControls extends StatefulWidget {
   const ViewerVideoControls({super.key, required this.video});
 
@@ -18,8 +17,6 @@ class _ViewerVideoControlsState extends State<ViewerVideoControls> {
   static const double _maxZoom = 4;
 
   final TransformationController _transformation = TransformationController();
-
-  int _quarterTurns = 0;
   double _zoom = 1;
 
   @override
@@ -43,8 +40,6 @@ class _ViewerVideoControlsState extends State<ViewerVideoControls> {
     final zoom = (_transformation.value.getMaxScaleOnAxis() * factor)
         .clamp(_minZoom, _maxZoom)
         .toDouble();
-    // Keep the point currently under the screen center in place when using
-    // the +/- buttons. InteractiveViewer provides pinch and pan gestures.
     final center = Offset(viewport.width / 2, viewport.height / 2);
     final sceneCenter = _transformation.toScene(center);
     _transformation.value = Matrix4.identity()
@@ -53,16 +48,8 @@ class _ViewerVideoControlsState extends State<ViewerVideoControls> {
       ..translateByDouble(-sceneCenter.dx, -sceneCenter.dy, 0, 1);
   }
 
-  void _rotate() {
-    // Reset pan/zoom when changing aspect orientation to prevent the image
-    // from disappearing outside the viewport.
-    _transformation.value = Matrix4.identity();
-    setState(() => _quarterTurns = (_quarterTurns + 1) % 4);
-  }
-
   void _reset() {
     _transformation.value = Matrix4.identity();
-    setState(() => _quarterTurns = 0);
   }
 
   @override
@@ -86,52 +73,40 @@ class _ViewerVideoControlsState extends State<ViewerVideoControls> {
                   maxScale: _maxZoom,
                   panEnabled: true,
                   scaleEnabled: true,
-                  child: RotatedBox(
-                    quarterTurns: _quarterTurns,
-                    child: SizedBox.expand(child: widget.video),
-                  ),
+                  child: SizedBox.expand(child: widget.video),
                 ),
               ),
               Align(
-                alignment: Alignment.bottomCenter,
+                alignment: Alignment.bottomRight,
                 child: Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
+                  padding: const EdgeInsets.all(12),
                   child: Material(
                     color: Colors.black.withValues(alpha: 0.76),
                     borderRadius: BorderRadius.circular(24),
                     child: Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 4),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          IconButton(
-                            tooltip: '영상 90도 회전',
-                            onPressed: _rotate,
-                            icon: const Icon(Icons.rotate_right),
-                          ),
-                          Text('${_quarterTurns * 90}°'),
-                          IconButton(
-                            tooltip: '축소',
-                            onPressed: _zoom <= _minZoom + 0.01
-                                ? null
-                                : () => _changeZoom(1 / 1.5, viewport),
-                            icon: const Icon(Icons.remove),
-                          ),
-                          Text('${_zoom.toStringAsFixed(1)}x'),
-                          IconButton(
-                            tooltip: '확대',
-                            onPressed: _zoom >= _maxZoom - 0.01
-                                ? null
-                                : () => _changeZoom(1.5, viewport),
-                            icon: const Icon(Icons.add),
-                          ),
-                          IconButton(
-                            tooltip: '회전 및 확대 초기화',
-                            onPressed: _reset,
-                            icon: const Icon(Icons.restart_alt),
-                          ),
-                        ],
-                      ),
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                        IconButton(
+                          tooltip: '축소',
+                          onPressed: _zoom <= _minZoom + 0.01
+                              ? null
+                              : () => _changeZoom(1 / 1.5, viewport),
+                          icon: const Icon(Icons.remove),
+                        ),
+                        Text('${_zoom.toStringAsFixed(1)}x'),
+                        IconButton(
+                          tooltip: '확대',
+                          onPressed: _zoom >= _maxZoom - 0.01
+                              ? null
+                              : () => _changeZoom(1.5, viewport),
+                          icon: const Icon(Icons.add),
+                        ),
+                        IconButton(
+                          tooltip: '확대 초기화',
+                          onPressed: _reset,
+                          icon: const Icon(Icons.restart_alt),
+                        ),
+                      ]),
                     ),
                   ),
                 ),
