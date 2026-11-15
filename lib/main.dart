@@ -1,14 +1,22 @@
-import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:camera/camera.dart';
+import 'dart:async';
+
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_webrtc/flutter_webrtc.dart';
+
 import 'remote_control.dart';
-import 'dart:async';
+import 'webrtc_session.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  try { await RemoteControl.instance.initialize(); } catch (_) { /* setup shown in app */ }
+  try {
+    await RemoteControl.instance.initialize();
+  } catch (_) {
+    // A clear setup prompt is shown below when Firebase is unavailable.
+  }
   runApp(const HomeCameraApp());
 }
 
@@ -17,15 +25,19 @@ class HomeCameraApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => MaterialApp(
-        title: 'Home Camera P0',
+        title: 'HomeCamera',
         debugShowCheckedModeBanner: false,
         theme: ThemeData.dark(useMaterial3: true),
         routes: {'/roles': (_) => const RoleSelectionScreen()},
         home: Firebase.apps.isEmpty
-          ? const Scaffold(body: Center(child: Text('Firebase 설정 필요: flutterfire configure 실행 후 재빌드')))
-          : FirebaseAuth.instance.currentUser == null
-            ? const LoginScreen()
-            : const RoleSelectionScreen(),
+            ? const Scaffold(
+                body: Center(
+                  child: Text('Firebase 설정 필요: flutterfire configure 후 앱을 재빌드하세요'),
+                ),
+              )
+            : FirebaseAuth.instance.currentUser == null
+                ? const LoginScreen()
+                : const RoleSelectionScreen(),
       );
 }
 
@@ -61,32 +73,29 @@ class RoleSelectionScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('Home Camera · P0')),
+        appBar: AppBar(title: const Text('HomeCamera · 실시간 보기 P3')),
         body: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 400),
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(mainAxisSize: MainAxisSize.min, children: [
-                const Text('이 기기의 역할을 선택하세요',
-                    style: TextStyle(fontSize: 22)),
-                const SizedBox(height: 24),
-                FilledButton.icon(
-                  icon: const Icon(Icons.videocam_off),
-                  label: const Text('거치폰 · 카메라 대기'),
-                  onPressed: () => _openStation(context),
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              const Text('이 기기의 역할을 선택하세요',
+                  style: TextStyle(fontSize: 22)),
+              const SizedBox(height: 24),
+              FilledButton.icon(
+                icon: const Icon(Icons.videocam_off),
+                label: const Text('거치폰 · 카메라 대기'),
+                onPressed: () => _openStation(context),
+              ),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                icon: const Icon(Icons.visibility),
+                label: const Text('뷰어폰 · 실시간 보기'),
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                      builder: (_) => const ViewerScreen()),
                 ),
-                const SizedBox(height: 12),
-                OutlinedButton.icon(
-                  icon: const Icon(Icons.visibility),
-                  label: const Text('뷰어폰 · 실시간 보기'),
-                  onPressed: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                        builder: (_) => const ViewerScreen()),
-                  ),
-                ),
-              ]),
-            ),
+              ),
+            ]),
           ),
         ),
       );
@@ -102,157 +111,193 @@ class StationScreen extends StatefulWidget {
 class _StationScreenState extends State<StationScreen>
     with WidgetsBindingObserver {
   static const _screen = MethodChannel('home_camera/screen');
-  String _status = '대기 화면 준비 중';
-  bool _active = false;
-  CameraController? _camera;
-  String? _cameraError;
-  bool _cameraBusy = false;
-  StreamSubscription<dynamic>? _remoteSubscription;
+  late final HomeCamWebRtcSession _rtc;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _commands;
+  Future<void> _commandQueue = Future<void>.value();
+
+  String _status = '연결 대기 준비 중';
   String? _lastCommandId;
+  bool _foreground = true;
+  bool _streaming = false;
+  bool _leaving = false;
 
   @override
   void initState() {
     super.initState();
+    _rtc = HomeCamWebRtcSession(
+      onStatus: (value) {
+        if (mounted) setState(() => _status = value);
+      },
+      onRemoteEnded: () {
+        _commandQueue = _commandQueue.then((_) => _finishStream()).catchError(
+          (Object error) {
+            if (mounted) setState(() => _status = '종료 처리 오류: $error');
+          },
+        );
+      },
+    );
     WidgetsBinding.instance.addObserver(this);
-    _startWaiting();
-    _connectRemote();
+    unawaited(_enterWaiting());
+    unawaited(_connectCommands());
   }
 
-  Future<void> _connectRemote() async {
+  Future<void> _enterWaiting() async {
+    try {
+      await _screen.invokeMethod<void>('enableWaitingMode');
+      if (mounted && !_streaming) {
+        setState(() => _status = '연결 대기 중');
+      }
+    } catch (error) {
+      if (mounted) setState(() => _status = '화면 유지 오류: $error');
+    }
+  }
+
+  Future<void> _connectCommands() async {
     try {
       await RemoteControl.instance.startStation();
-      _remoteSubscription = RemoteControl.instance.watch().listen((snapshot) async {
-        if (!mounted || !snapshot.exists) return;
-        final data = snapshot.data()!;
+      if (!mounted || _leaving) return;
+      _commands = RemoteControl.instance.watch().listen((snapshot) {
+        final data = snapshot.data();
+        if (!mounted || _leaving || data == null) return;
         final id = data['commandId'] as String? ?? '';
-        final command = data['command'] as String? ?? 'idle';
         if (id.isEmpty || id == _lastCommandId) return;
         _lastCommandId = id;
-        if (command != 'start' && command != 'stop') return;
-        try {
-          if (command == 'start' && _camera == null) await _toggleCamera();
-          if (command == 'stop' && _camera != null) await _toggleCamera();
-          await RemoteControl.instance.acknowledge(id,
-            _cameraError != null ? 'error: $_cameraError' : (_camera == null ? 'camera_off' : 'camera_on'));
-        } catch (error) {
-          await RemoteControl.instance.acknowledge(id, 'error: $error');
-        }
+        _commandQueue = _commandQueue.then((_) => _handleCommand(data))
+            .catchError((Object error) {
+          if (mounted) setState(() => _status = '원격 요청 오류: $error');
+        });
       }, onError: (Object error) {
-        if (mounted) setState(() => _status = '원격 연결 오류: $error');
+        if (mounted) setState(() => _status = 'Firebase 연결 오류: $error');
       });
     } catch (error) {
       if (mounted) setState(() => _status = 'Firebase 연결 오류: $error');
     }
   }
 
-  Future<void> _startWaiting() async {
+  Future<void> _handleCommand(Map<String, dynamic> data) async {
+    if (!mounted || _leaving) return;
+    final command = data['command'] as String? ?? 'idle';
+    final id = data['commandId'] as String? ?? '';
+    final sessionId = data['sessionId'] as String? ?? '';
+
+    if (command == 'stop') {
+      await _finishStream();
+      await RemoteControl.instance.acknowledge(id, 'camera_off');
+      return;
+    }
+    if (command != 'start' || !_foreground) return;
+
+    final requestedAt = data['updatedAt'];
+    if (requestedAt is Timestamp &&
+        DateTime.now().difference(requestedAt.toDate()) >
+            const Duration(seconds: 60)) {
+      await RemoteControl.instance.acknowledge(id, 'expired_request');
+      return;
+    }
+    if (sessionId.isEmpty) return;
+
     try {
-      await _screen.invokeMethod<void>('enableWaitingMode');
-      if (!mounted) return;
+      if (mounted) setState(() => _status = '원격 연결 준비 중');
+      await _rtc.startStation(sessionId);
+      if (!mounted || _leaving || !_foreground) {
+        await _rtc.end();
+        return;
+      }
       setState(() {
-        _active = true;
+        _streaming = true;
+        _status = '후면 카메라 송출 중 · 마이크 OFF';
+      });
+      await RemoteControl.instance.acknowledge(id, 'answer_ready');
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _streaming = false;
+          _status = '송출 시작 실패: $error';
+        });
+      }
+      await RemoteControl.instance.acknowledge(id, 'error: $error');
+    }
+  }
+
+  Future<void> _finishStream() async {
+    if (_rtc.isRunning) await _rtc.end();
+    if (mounted && !_leaving) {
+      setState(() {
+        _streaming = false;
         _status = '연결 대기 중';
       });
-    } on PlatformException catch (error) {
-      if (!mounted) return;
-      setState(() => _status = '화면 유지 설정 실패: ${error.message}');
-    } on MissingPluginException {
-      if (!mounted) return;
-      setState(() => _status = '네이티브 화면 유지 기능을 설치해야 합니다');
+    }
+  }
+
+  Future<void> _leave() async {
+    if (_leaving) return;
+    setState(() => _leaving = true);
+    await _commands?.cancel();
+    try {
+      await _rtc.end();
+      await RemoteControl.instance.stopStation();
+    } finally {
+      if (mounted) Navigator.of(context).pop();
     }
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (!mounted) return;
-    setState(() {
-      _status = state == AppLifecycleState.resumed
-          ? (_active ? '연결 대기 중' : '화면 유지 미설정')
-          : '앱 비활성화 · 원격 연결 보장 안 됨';
-    });
-  }
-
-  Future<void> _toggleCamera() async {
-    if (_cameraBusy) return;
-    setState(() => _cameraBusy = true);
-    try {
-      if (_camera != null) {
-        final old = _camera!;
-        setState(() => _camera = null);
-        await old.dispose();
-      } else {
-        final devices = await availableCameras();
-        final rear = devices.where(
-          (camera) => camera.lensDirection == CameraLensDirection.back,
-        );
-        if (rear.isEmpty) throw StateError('후면 카메라를 찾을 수 없습니다');
-        final controller = CameraController(
-          rear.first,
-          ResolutionPreset.medium,
-          enableAudio: false,
-        );
-        await controller.initialize();
-        if (!mounted) {
-          await controller.dispose();
-          return;
-        }
-        setState(() {
-          _camera = controller;
-          _cameraError = null;
-        });
+    _foreground = state == AppLifecycleState.resumed;
+    if (!_foreground && !_leaving) {
+      if (mounted) {
+        setState(() => _status = '앱 비활성화 · 영상 송출 중단');
       }
-    } catch (error) {
-      if (mounted) setState(() => _cameraError = '$error');
-    } finally {
-      if (mounted) setState(() => _cameraBusy = false);
+      _commandQueue = _commandQueue.then((_) => _finishStream()).catchError(
+        (Object error) {
+          if (mounted) setState(() => _status = '종료 오류: $error');
+        },
+      );
+    } else if (_foreground && !_streaming && mounted) {
+      setState(() => _status = '연결 대기 중');
     }
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _remoteSubscription?.cancel();
-    RemoteControl.instance.stopStation();
-    _camera?.dispose();
-    _screen.invokeMethod<void>('disableWaitingMode');
+    unawaited(_commands?.cancel());
+    unawaited(_rtc.end(notifyRemote: !_leaving));
+    if (!_leaving) unawaited(RemoteControl.instance.stopStation());
+    unawaited(_screen.invokeMethod<void>('disableWaitingMode'));
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) => PopScope(
+        canPop: _leaving,
+        onPopInvokedWithResult: (didPop, result) {
+          if (!didPop) unawaited(_leave());
+        },
         child: Scaffold(
           backgroundColor: Colors.black,
           body: SafeArea(
             child: Center(
               child: Column(mainAxisSize: MainAxisSize.min, children: [
-                const Icon(Icons.videocam_off_outlined,
-                    size: 36, color: Colors.white30),
-                const SizedBox(height: 16),
-                Text(_status,
-                    style: const TextStyle(color: Colors.white54)),
+                Icon(_streaming ? Icons.videocam : Icons.videocam_off_outlined,
+                    size: 38, color: Colors.white38),
+                const SizedBox(height: 14),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  child: Text(_status,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: Colors.white54)),
+                ),
                 const SizedBox(height: 12),
-                const Text('카메라 OFF · 마이크 OFF · 녹화 OFF',
-                    style: TextStyle(color: Colors.white30, fontSize: 12)),
-                const SizedBox(height: 18),
-                if (_camera != null && _camera!.value.isInitialized)
-                  SizedBox(
-                    width: 220,
-                    height: 280,
-                    child: CameraPreview(_camera!),
-                  ),
-                if (_cameraError != null)
-                  Text(_cameraError!,
-                      style: const TextStyle(color: Colors.orangeAccent)),
-                const SizedBox(height: 12),
-                OutlinedButton(
-                  onPressed: _cameraBusy ? null : _toggleCamera,
-                  child: Text(_camera == null
-                      ? '후면 카메라 로컬 테스트 (P1)'
-                      : '카메라 끄기'),
+                Text(
+                  _streaming
+                      ? '후면 카메라 ON · 마이크 OFF · 녹화 OFF'
+                      : '카메라 OFF · 마이크 OFF · 녹화 OFF',
+                  style: const TextStyle(color: Colors.white30, fontSize: 12),
                 ),
                 const SizedBox(height: 28),
                 TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
+                  onPressed: _leaving ? null : _leave,
                   child: const Text('대기 종료'),
                 ),
               ]),
@@ -262,39 +307,131 @@ class _StationScreenState extends State<StationScreen>
       );
 }
 
-class ViewerScreen extends StatelessWidget {
+class ViewerScreen extends StatefulWidget {
   const ViewerScreen({super.key});
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('뷰어 · 원격 제어 P2')),
-    body: StreamBuilder(
-      stream: RemoteControl.instance.watch(),
-      builder: (context, snapshot) {
-        final data = snapshot.data?.data();
-        final status = data?['status'] ?? '응답 대기';
-        final online = data?['onlineHint'] == true;
-        return Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Text('거치폰: ${online ? "대기 중 (최근 상태)" : "대기 중 아님"}'),
-          Text('마지막 응답: $status'),
-          const SizedBox(height: 20),
-          FilledButton(
-            onPressed: () async {
-              try { await RemoteControl.instance.send('start'); }
-              catch (e) { if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e'))); }
-            },
-            child: const Text('원격 후면 카메라 켜기'),
-          ),
-          OutlinedButton(
-            onPressed: () async {
-              try { await RemoteControl.instance.send('stop'); }
-              catch (e) { if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e'))); }
-            },
-            child: const Text('원격 카메라 끄기'),
-          ),
-          const Text('P2: 명령 제어만 구현. 영상 전송은 아직 없음.'),
-        ]));
+  State<ViewerScreen> createState() => _ViewerScreenState();
+}
+
+class _ViewerScreenState extends State<ViewerScreen> {
+  late final HomeCamWebRtcSession _rtc;
+  String _status = '실시간 보기를 누르면 원격 연결합니다';
+  bool _busy = false;
+  bool _watching = false;
+  bool _leaving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _rtc = HomeCamWebRtcSession(
+      onStatus: (value) {
+        if (mounted) setState(() => _status = value);
       },
-    ),
-  );
+      onRemoteEnded: () => unawaited(_stop(notifyRemote: false)),
+    );
+  }
+
+  Future<void> _start() async {
+    if (_busy || _watching) return;
+    setState(() {
+      _busy = true;
+      _status = '거치폰 연결 요청 중';
+    });
+    try {
+      await _rtc.startViewer();
+      if (mounted && !_leaving) setState(() => _watching = true);
+    } catch (error) {
+      if (mounted) setState(() => _status = '연결 실패: $error');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _stop({bool notifyRemote = true}) async {
+    if (_busy && !_leaving) return;
+    final sessionId = _rtc.sessionId;
+    setState(() {
+      _busy = true;
+      _watching = false;
+    });
+    try {
+      await _rtc.end(notifyRemote: notifyRemote);
+      if (notifyRemote && sessionId != null) {
+        await RemoteControl.instance.requestStop(sessionId);
+      }
+      if (mounted && !_leaving) {
+        setState(() => _status = '영상 종료 · 카메라 정리 요청 완료');
+      }
+    } catch (error) {
+      if (mounted) setState(() => _status = '종료 오류: $error');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _leave() async {
+    if (_leaving) return;
+    setState(() => _leaving = true);
+    final sessionId = _rtc.sessionId;
+    try {
+      await _rtc.end();
+      if (sessionId != null) {
+        await RemoteControl.instance.requestStop(sessionId);
+      }
+    } finally {
+      if (mounted) Navigator.of(context).pop();
+    }
+  }
+
+  @override
+  void dispose() {
+    unawaited(_rtc.end());
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final renderer = _rtc.renderer;
+    return PopScope(
+      canPop: _leaving,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) unawaited(_leave());
+      },
+      child: Scaffold(
+        appBar: AppBar(title: const Text('홈캠 실시간 보기')),
+        body: SafeArea(
+          child: Column(children: [
+            Expanded(
+              child: Container(
+                color: Colors.black,
+                alignment: Alignment.center,
+                child: _watching && renderer != null
+                    ? RTCVideoView(renderer)
+                    : const Icon(Icons.videocam_off_outlined,
+                        size: 60, color: Colors.white38),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
+              child: Column(children: [
+                Text(_status, textAlign: TextAlign.center),
+                const SizedBox(height: 12),
+                FilledButton(
+                  onPressed: _busy || _watching ? null : _start,
+                  child: const Text('실시간 보기 시작'),
+                ),
+                OutlinedButton(
+                  onPressed: _busy || !_watching ? null : _stop,
+                  child: const Text('실시간 보기 종료'),
+                ),
+                const Text('영상만 전송 · 마이크 및 녹화 OFF',
+                    style: TextStyle(fontSize: 12, color: Colors.white54)),
+              ]),
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
 }
