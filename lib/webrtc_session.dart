@@ -123,14 +123,18 @@ class HomeCamWebRtcSession {
           rethrow;
         }
       } else if (!enabled) {
-        await _audioSender?.replaceTrack(null);
         final stream = _microphoneStream;
         _microphoneStream = null;
-        if (stream != null) {
-          for (final track in stream.getTracks()) {
-            await track.stop();
+        try {
+          await _audioSender?.replaceTrack(null);
+        } finally {
+          // Releasing capture takes priority over signaling success.
+          if (stream != null) {
+            for (final track in stream.getTracks()) {
+              await track.stop();
+            }
+            await stream.dispose();
           }
-          await stream.dispose();
         }
       }
       if (_closing || _sessionId != id) return;
@@ -382,13 +386,19 @@ class HomeCamWebRtcSession {
       // The offer includes a receive-only audio m-line. Mark the matching
       // answer-side transceiver send-only even though no mic track exists yet.
       // A later replaceTrack can start/stop capture without renegotiation.
-      final transceivers = await _peer!.getTransceivers();
-      for (final transceiver in transceivers) {
-        if (transceiver.receiver.track?.kind == 'audio') {
-          await transceiver.setDirection(TransceiverDirection.SendOnly);
-          _audioSender = transceiver.sender;
-          break;
+      try {
+        final transceivers = await _peer!.getTransceivers();
+        for (final transceiver in transceivers) {
+          if (transceiver.receiver.track?.kind == 'audio') {
+            await transceiver.setDirection(TransceiverDirection.SendOnly);
+            _audioSender = transceiver.sender;
+            break;
+          }
         }
+      } catch (error) {
+        // Optional audio must not regress the already-tested video connection.
+        _audioSender = null;
+        onStatus('오디오 채널 협상 실패 · 영상 연결은 계속합니다: $error');
       }
 
       _cameraStream = await navigator.mediaDevices.getUserMedia({
@@ -404,7 +414,14 @@ class HomeCamWebRtcSession {
         await _peer!.addTrack(track, _cameraStream!);
       }
       // Associate future audio with the same video stream on the remote side.
-      await _audioSender?.setStreams([_cameraStream!]);
+      if (_audioSender != null) {
+        try {
+          await _audioSender!.setStreams([_cameraStream!]);
+        } catch (error) {
+          _audioSender = null;
+          onStatus('오디오 스트림 준비 실패 · 영상 연결은 계속합니다: $error');
+        }
+      }
 
       final answer = await _peer!.createAnswer();
       await _peer!.setLocalDescription(answer);
