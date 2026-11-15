@@ -40,7 +40,7 @@ void main() {
         onToggleMicrophone: () => toggles++,
       ),
     ));
-    expect(find.text('영상 송출 중'), findsOneWidget);
+    expect(find.text('실시간 연결 중'), findsOneWidget);
     expect(find.textContaining('마이크 OFF'), findsOneWidget);
     await tester.tap(find.text('거치폰 마이크 켜기'));
     await tester.pump();
@@ -90,7 +90,7 @@ void main() {
         ),
       ),
     );
-    expect(find.text('우리 집, 궁금할 때'), findsOneWidget);
+    expect(find.text('우리 집, 궁금할 땐'), findsOneWidget);
     await tester.tap(find.text('실시간 보기'));
     expect(starts, 1);
   });
