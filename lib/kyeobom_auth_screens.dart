@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 
 import 'kyeobom_design.dart';
 import 'remote_control.dart';
+import 'homecam_session_housekeeping.dart';
+import 'dart:async';
 
 class _AuthShell extends StatelessWidget {
   const _AuthShell({required this.child, this.showBack = false});
@@ -61,6 +63,7 @@ class _LoginScreenState extends State<LoginScreen> {
       await RemoteControl.instance.signIn(
         email.text.trim(), password.text, register: false,
       );
+      unawaited(HomeCamSessionHousekeeping.runIfDue());
       if (mounted) Navigator.of(context).pushReplacementNamed('/roles');
     } on FirebaseAuthException catch (e) {
       if (mounted) setState(() => error = e.message ?? '로그인 정보를 확인해 주세요.');
@@ -179,6 +182,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       await RemoteControl.instance.signIn(
         email.text.trim(), password.text, register: true,
       );
+      unawaited(HomeCamSessionHousekeeping.runIfDue());
       if (mounted) {
         Navigator.of(context).pushNamedAndRemoveUntil(
           '/roles', (_) => false,
