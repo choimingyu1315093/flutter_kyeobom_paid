@@ -25,6 +25,10 @@ void main() {
     await tester.pumpWidget(MaterialApp(home: createViewer()));
     expect(find.byType(KyeobomViewerHomeAd), findsOneWidget);
     expect(find.text('실시간 보기'), findsOneWidget);
+    final scaffold = tester.widget<Scaffold>(find.byType(Scaffold));
+    expect(scaffold.bottomNavigationBar, isNotNull);
+    expect(scaffold.bottomNavigationBar.toString(),
+        contains('SafeArea'));
 
     await tester.pumpWidget(
       MaterialApp(home: createViewer(busy: true)),
