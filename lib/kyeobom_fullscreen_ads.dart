@@ -62,7 +62,8 @@ class KyeobomFullscreenAds {
   Future<void> onViewerHomeWithConsent() async {
     _viewerHome = true;
     _live = false;
-    _foreground = true;
+    // Do NOT infer foreground status from an asynchronous ad-widget callback.
+    // Only the actual app lifecycle may mark us resumed/foreground.
     _consentAllowed = await ConsentInformation.instance.canRequestAds();
     if (!_consentAllowed) {
       revokeConsent();
