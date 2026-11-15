@@ -14,7 +14,7 @@ abstract final class KyeobomAdMetrics {
   static Future<void> _pending = Future<void>.value();
 
   static void record(KyeobomAdFormat format, String event,
-      {int micros = 0, String currency = ''}) {
+      {double micros = 0, String currency = ''}) {
     _pending = _pending.then((_) async {
       try {
         final prefs = SharedPreferencesAsync();
@@ -24,7 +24,7 @@ abstract final class KyeobomAdMetrics {
         if (event == 'paid' && micros > 0 && currency.isNotEmpty) {
           final currencyKey = 'kyeobom_ads_v1_${type}_paid_${currency}';
           await prefs.setInt(currencyKey,
-              (await prefs.getInt(currencyKey) ?? 0) + micros);
+              (await prefs.getInt(currencyKey) ?? 0) + micros.round());
         }
       } catch (_) {
         // Never introduce server calls or affect video for ad metrics.
@@ -59,6 +59,21 @@ class KyeobomViewerHomeAd extends StatefulWidget {
 }
 
 class _KyeobomViewerHomeAdState extends State<KyeobomViewerHomeAd> {
+  static Future<void>? _sharedSdkInitialization;
+
+  static Future<void> _initializeSdkOnce() =>
+      _sharedSdkInitialization ??= _startSdk();
+
+  static Future<void> _startSdk() async {
+    try {
+      await MobileAds.instance.initialize();
+    } catch (_) {
+      // SDK failure can retry at the next dashboard entry.
+      _sharedSdkInitialization = null;
+      rethrow;
+    }
+  }
+
   BannerAd? _banner;
   NativeAd? _native;
   bool _loaded = false;
@@ -67,7 +82,6 @@ class _KyeobomViewerHomeAdState extends State<KyeobomViewerHomeAd> {
   bool _privacyRequired = false;
   bool _consentNeedsAction = false;
   KyeobomAdFormat _format = KyeobomAdFormat.banner;
-  String? _error;
   int _adHeight = 0;
   bool _sdkInitialized = false;
 
@@ -134,7 +148,6 @@ class _KyeobomViewerHomeAdState extends State<KyeobomViewerHomeAd> {
       }
       await _loadIfPermitted();
     } catch (error) {
-      if (mounted) setState(() => _error = '광고 준비 실패');
       if (kDebugMode) debugPrint('[kyeobom/ads] $error');
     } finally {
       _busy = false;
@@ -189,7 +202,7 @@ class _KyeobomViewerHomeAdState extends State<KyeobomViewerHomeAd> {
   Future<void> _loadIfPermitted() async {
     if (!mounted || _disposed || _loaded || !_allowed) return;
     if (!_sdkInitialized) {
-      await MobileAds.instance.initialize();
+      await _initializeSdkOnce();
       _sdkInitialized = true;
     }
     if (!mounted || _disposed || _loaded) return;
