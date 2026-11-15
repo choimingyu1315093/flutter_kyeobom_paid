@@ -231,15 +231,18 @@ class _RegisterScreenState extends State<RegisterScreen> {
           border: Border.all(color: KyeobomPalette.border),
           borderRadius: BorderRadius.circular(12),
         ),
-        child: CheckboxListTile(
-          controlAffinity: ListTileControlAffinity.leading,
+        child: Material(
+          type: MaterialType.transparency,
+          child: CheckboxListTile(
+            controlAffinity: ListTileControlAffinity.leading,
           value: acceptedTestNotice,
           contentPadding: EdgeInsets.zero,
           title: const Text('테스트 계정 안내 확인',
             style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
           subtitle: const Text('현재 두 기기는 동일한 계정으로 연결하는 테스트 버전입니다.',
             style: TextStyle(fontSize: 11, color: KyeobomPalette.muted)),
-          onChanged: (v) => setState(() => acceptedTestNotice = v ?? false),
+            onChanged: (v) => setState(() => acceptedTestNotice = v ?? false),
+          ),
         ),
       ),
       if (error != null) ...[
