@@ -112,9 +112,23 @@ class StationMicrophone {
 
       // A permission prompt may suspend the foreground app temporarily.
       // The user must approve microphone use on the station itself.
-      final stream = await navigator.mediaDevices.getUserMedia(
-        stationRoomAudioConstraints(),
-      );
+      MediaStream stream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia(
+          stationRoomAudioConstraints(),
+        );
+      } catch (error) {
+        final message = '$error'.toLowerCase();
+        if (message.contains('permission') || message.contains('notallowed')) {
+          rethrow;
+        }
+        // Unsupported device-specific audio constraints are NOT allowed to
+        // break the existing, working microphone feature.
+        stream = await navigator.mediaDevices.getUserMedia({
+          'audio': true,
+          'video': false,
+        });
+      }
       _stream = stream;
       if (_stopping) return;
 
