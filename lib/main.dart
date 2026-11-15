@@ -6,6 +6,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'remote_control.dart';
 import 'webrtc_session.dart';
@@ -117,6 +118,9 @@ class _StationScreenState extends State<StationScreen>
   static const _screen = MethodChannel('home_camera/screen');
   late final HomeCamWebRtcSession _rtc;
   late final StationMicrophone _microphone;
+  late final Future<void> _micSettingsReady;
+  final SharedPreferencesAsync _micPreferences = SharedPreferencesAsync();
+  static const _micAutoKey = 'station_auto_microphone_when_viewing_v1';
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _commands;
   Future<void> _commandQueue = Future<void>.value();
 
@@ -127,6 +131,8 @@ class _StationScreenState extends State<StationScreen>
   bool _leaving = false;
   bool _microphoneOn = false;
   bool _microphoneBusy = false;
+  bool _micAutoEnabled = false;
+  bool _micSettingsBusy = false;
   String? _microphoneMessage;
 
   @override
@@ -139,6 +145,7 @@ class _StationScreenState extends State<StationScreen>
         _microphoneMessage = message;
       });
     });
+    _micSettingsReady = _loadMicSetting();
     _rtc = HomeCamWebRtcSession(
       onStatus: (value) {
         if (mounted) setState(() => _status = value);
@@ -167,8 +174,47 @@ class _StationScreenState extends State<StationScreen>
     }
   }
 
+  Future<void> _loadMicSetting() async {
+    try {
+      final enabled = await _micPreferences.getBool(_micAutoKey) ?? false;
+      if (mounted) setState(() => _micAutoEnabled = enabled);
+    } catch (error) {
+      if (mounted) {
+        setState(() => _microphoneMessage = '마이크 설정 읽기 실패: $error');
+      }
+    }
+  }
+
+  /// This consent is configured on the station device while a person is there.
+  /// Permission capture is stopped immediately; no idle microphone remains on.
+  Future<void> _setMicAutoEnabled(bool enabled) async {
+    if (_micSettingsBusy || _streaming || _leaving) return;
+    setState(() => _micSettingsBusy = true);
+    try {
+      if (enabled) {
+        await StationMicrophone.preparePermission();
+      }
+      await _micPreferences.setBool(_micAutoKey, enabled);
+      if (mounted) {
+        setState(() {
+          _micAutoEnabled = enabled;
+          _microphoneMessage = enabled
+              ? '원격 영상 시작 시 이 거치폰 마이크가 자동으로 켜집니다'
+              : '원격 마이크 자동 시작을 해제했습니다';
+        });
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(() => _microphoneMessage = '거치폰 마이크 권한 오류: $error');
+      }
+    } finally {
+      if (mounted) setState(() => _micSettingsBusy = false);
+    }
+  }
+
   Future<void> _connectCommands() async {
     try {
+      await _micSettingsReady;
       await RemoteControl.instance.startStation();
       if (!mounted || _leaving) return;
       _commands = RemoteControl.instance.watch().listen((snapshot) {
@@ -230,6 +276,11 @@ class _StationScreenState extends State<StationScreen>
         _status = '후면 카메라 송출 중 · 마이크 OFF';
       });
       await RemoteControl.instance.acknowledge(id, 'answer_ready');
+      if (_micAutoEnabled && _streaming && _rtc.sessionId == sessionId) {
+        // Station-side opt-in only; viewer has no microphone capture.
+        // Audio failure is isolated and cannot tear down the video peer.
+        unawaited(_toggleStationMicrophone());
+      }
     } catch (error) {
       if (mounted) {
         setState(() {
@@ -345,6 +396,23 @@ class _StationScreenState extends State<StationScreen>
                       : '카메라 OFF · 마이크 OFF · 녹화 OFF',
                   style: const TextStyle(color: Colors.white30, fontSize: 12),
                 ),
+                if (!_streaming) ...[
+                  const SizedBox(height: 12),
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 420),
+                    child: SwitchListTile.adaptive(
+                      title: const Text('실시간 보기 시 거치폰 마이크 자동 켜기',
+                          style: TextStyle(fontSize: 14)),
+                      subtitle: const Text(
+                          '거치폰 주변 소리만 전송 · 대기 중 마이크 OFF',
+                          style: TextStyle(fontSize: 11)),
+                      value: _micAutoEnabled,
+                      onChanged: _micSettingsBusy || _leaving
+                          ? null
+                          : (enabled) => unawaited(_setMicAutoEnabled(enabled)),
+                    ),
+                  ),
+                ],
                 if (_streaming) ...[
                   const SizedBox(height: 14),
                   OutlinedButton.icon(
@@ -352,7 +420,7 @@ class _StationScreenState extends State<StationScreen>
                     icon: Icon(_microphoneOn ? Icons.mic : Icons.mic_off),
                     label: Text(_microphoneBusy
                         ? '마이크 전환 중'
-                        : _microphoneOn ? '마이크 끄기' : '마이크 켜기'),
+                        : _microphoneOn ? '거치폰 마이크 끄기' : '거치폰 마이크 켜기'),
                   ),
                   if (_microphoneMessage != null)
                     Padding(
