@@ -98,16 +98,19 @@ class KyeobomStationView extends StatelessWidget {
               border: Border.all(color: const Color(0xFF1E2832)),
               borderRadius: BorderRadius.circular(12),
             ),
-            child: SwitchListTile.adaptive(
-              title: const Text('실시간 보기 시 거치폰 마이크 자동 켜기',
+            child: Material(
+              type: MaterialType.transparency,
+              child: SwitchListTile.adaptive(
+                title: const Text('실시간 보기 시 거치폰 마이크 자동 켜기',
                 style: TextStyle(color: Colors.white60, fontSize: 12)),
               subtitle: const Text('주변 소리만 전송 · 대기 중에는 OFF',
                 style: TextStyle(color: Colors.white30, fontSize: 10)),
               contentPadding: const EdgeInsets.symmetric(horizontal: 12),
               activeTrackColor: KyeobomPalette.blue,
               value: autoMicrophoneEnabled,
-              onChanged: leaving || autoMicrophoneBusy
-                  ? null : onAutoMicrophoneChanged,
+                onChanged: leaving || autoMicrophoneBusy
+                    ? null : onAutoMicrophoneChanged,
+              ),
             ),
           ),
         if (microphoneMessage != null) ...[
