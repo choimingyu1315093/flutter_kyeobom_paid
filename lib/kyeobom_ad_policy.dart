@@ -40,7 +40,276 @@ abstract final class KyeobomAdPolicy {
   static bool _valid(String text, {required bool appId}) {
     if (text.isEmpty || text.startsWith(_demoPrefix)) return false;
     return appId
-        ? RegExp(r'^ca-app-pub-\\d{16}~\\d{10}$').hasMatch(text)
+        ? RegExp(r'^ca-app-pub-[0-9]{16}~[0-9]{10}
+        : RegExp(r'^ca-app-pub-[0-9]{16}/[0-9]{10}
+  }
+
+  static bool supportsPlatform(TargetPlatform platform) =>
+      platform == TargetPlatform.android || platform == TargetPlatform.iOS;
+
+  static bool isEnabled({
+    required TargetPlatform platform,
+    required bool release,
+  }) {
+    if (!supportsPlatform(platform)) return false;
+    if (!release) return true; // Google demo units ONLY for QA builds.
+    if (!enableLiveAds) return false; // Explicit production opt-in.
+    return _valid(
+          platform == TargetPlatform.android ? androidAppId : iosAppId,
+          appId: true,
+        ) &&
+        (productionUnit(
+          platform: platform, format: KyeobomAdFormat.banner,
+        ) != null ||
+        productionUnit(
+          platform: platform, format: KyeobomAdFormat.native,
+        ) != null);
+  }
+
+  static String? productionUnit({
+    required TargetPlatform platform,
+    required KyeobomAdFormat format,
+  }) {
+    final value = switch ((platform, format)) {
+      (TargetPlatform.android, KyeobomAdFormat.banner) => androidBanner,
+      (TargetPlatform.android, KyeobomAdFormat.native) => androidNative,
+      (TargetPlatform.iOS, KyeobomAdFormat.banner) => iosBanner,
+      (TargetPlatform.iOS, KyeobomAdFormat.native) => iosNative,
+      _ => '',
+    };
+    return _valid(value, appId: false) ? value : null;
+  }
+
+  static String? unitId({
+    required TargetPlatform platform,
+    required KyeobomAdFormat format,
+    required bool release,
+  }) {
+    if (!isEnabled(platform: platform, release: release)) return null;
+    if (release) return productionUnit(platform: platform, format: format);
+    return switch ((platform, format)) {
+      (TargetPlatform.android, KyeobomAdFormat.banner) => _androidBannerDemo,
+      (TargetPlatform.android, KyeobomAdFormat.native) => _androidNativeDemo,
+      (TargetPlatform.iOS, KyeobomAdFormat.banner) => _iosBannerDemo,
+      (TargetPlatform.iOS, KyeobomAdFormat.native) => _iosNativeDemo,
+      _ => null,
+    };
+  }
+
+  static KyeobomAdFormat choose({
+    required bool nativeAssigned,
+    required String override,
+  }) {
+    if (override == 'native') return KyeobomAdFormat.native;
+    if (override == 'banner') return KyeobomAdFormat.banner;
+    return nativeAssigned
+        ? KyeobomAdFormat.native
+        : KyeobomAdFormat.banner;
+  }
+
+  /// Stable 50/50 assignment per installation. No Firebase writes,
+  /// personal identifier or tracking beyond this device's preferences.
+  static Future<KyeobomAdFormat> assignedFormat() async {
+    if (formatOverride == 'banner' || formatOverride == 'native') {
+      return choose(nativeAssigned: false, override: formatOverride);
+    }
+    try {
+      final prefs = SharedPreferencesAsync();
+      const key = 'kyeobom_ad_format_experiment_v1';
+      var assigned = await prefs.getString(key);
+      if (assigned != 'banner' && assigned != 'native') {
+        assigned = Random.secure().nextBool() ? 'native' : 'banner';
+        await prefs.setString(key, assigned);
+      }
+      return assigned == 'native'
+          ? KyeobomAdFormat.native
+          : KyeobomAdFormat.banner;
+    } catch (_) {
+      // Ad selection failure must never affect the camera.
+      return KyeobomAdFormat.banner;
+    }
+  }
+}
+).hasMatch(text)
+        : RegExp(r'^ca-app-pub-\\d{16}/\\d{10}$').hasMatch(text);
+  }
+
+  static bool supportsPlatform(TargetPlatform platform) =>
+      platform == TargetPlatform.android || platform == TargetPlatform.iOS;
+
+  static bool isEnabled({
+    required TargetPlatform platform,
+    required bool release,
+  }) {
+    if (!supportsPlatform(platform)) return false;
+    if (!release) return true; // Google demo units ONLY for QA builds.
+    if (!enableLiveAds) return false; // Explicit production opt-in.
+    return _valid(
+          platform == TargetPlatform.android ? androidAppId : iosAppId,
+          appId: true,
+        ) &&
+        (productionUnit(
+          platform: platform, format: KyeobomAdFormat.banner,
+        ) != null ||
+        productionUnit(
+          platform: platform, format: KyeobomAdFormat.native,
+        ) != null);
+  }
+
+  static String? productionUnit({
+    required TargetPlatform platform,
+    required KyeobomAdFormat format,
+  }) {
+    final value = switch ((platform, format)) {
+      (TargetPlatform.android, KyeobomAdFormat.banner) => androidBanner,
+      (TargetPlatform.android, KyeobomAdFormat.native) => androidNative,
+      (TargetPlatform.iOS, KyeobomAdFormat.banner) => iosBanner,
+      (TargetPlatform.iOS, KyeobomAdFormat.native) => iosNative,
+      _ => '',
+    };
+    return _valid(value, appId: false) ? value : null;
+  }
+
+  static String? unitId({
+    required TargetPlatform platform,
+    required KyeobomAdFormat format,
+    required bool release,
+  }) {
+    if (!isEnabled(platform: platform, release: release)) return null;
+    if (release) return productionUnit(platform: platform, format: format);
+    return switch ((platform, format)) {
+      (TargetPlatform.android, KyeobomAdFormat.banner) => _androidBannerDemo,
+      (TargetPlatform.android, KyeobomAdFormat.native) => _androidNativeDemo,
+      (TargetPlatform.iOS, KyeobomAdFormat.banner) => _iosBannerDemo,
+      (TargetPlatform.iOS, KyeobomAdFormat.native) => _iosNativeDemo,
+      _ => null,
+    };
+  }
+
+  static KyeobomAdFormat choose({
+    required bool nativeAssigned,
+    required String override,
+  }) {
+    if (override == 'native') return KyeobomAdFormat.native;
+    if (override == 'banner') return KyeobomAdFormat.banner;
+    return nativeAssigned
+        ? KyeobomAdFormat.native
+        : KyeobomAdFormat.banner;
+  }
+
+  /// Stable 50/50 assignment per installation. No Firebase writes,
+  /// personal identifier or tracking beyond this device's preferences.
+  static Future<KyeobomAdFormat> assignedFormat() async {
+    if (formatOverride == 'banner' || formatOverride == 'native') {
+      return choose(nativeAssigned: false, override: formatOverride);
+    }
+    try {
+      final prefs = SharedPreferencesAsync();
+      const key = 'kyeobom_ad_format_experiment_v1';
+      var assigned = await prefs.getString(key);
+      if (assigned != 'banner' && assigned != 'native') {
+        assigned = Random.secure().nextBool() ? 'native' : 'banner';
+        await prefs.setString(key, assigned);
+      }
+      return assigned == 'native'
+          ? KyeobomAdFormat.native
+          : KyeobomAdFormat.banner;
+    } catch (_) {
+      // Ad selection failure must never affect the camera.
+      return KyeobomAdFormat.banner;
+    }
+  }
+}
+).hasMatch(text);
+  }
+
+  static bool supportsPlatform(TargetPlatform platform) =>
+      platform == TargetPlatform.android || platform == TargetPlatform.iOS;
+
+  static bool isEnabled({
+    required TargetPlatform platform,
+    required bool release,
+  }) {
+    if (!supportsPlatform(platform)) return false;
+    if (!release) return true; // Google demo units ONLY for QA builds.
+    if (!enableLiveAds) return false; // Explicit production opt-in.
+    return _valid(
+          platform == TargetPlatform.android ? androidAppId : iosAppId,
+          appId: true,
+        ) &&
+        (productionUnit(
+          platform: platform, format: KyeobomAdFormat.banner,
+        ) != null ||
+        productionUnit(
+          platform: platform, format: KyeobomAdFormat.native,
+        ) != null);
+  }
+
+  static String? productionUnit({
+    required TargetPlatform platform,
+    required KyeobomAdFormat format,
+  }) {
+    final value = switch ((platform, format)) {
+      (TargetPlatform.android, KyeobomAdFormat.banner) => androidBanner,
+      (TargetPlatform.android, KyeobomAdFormat.native) => androidNative,
+      (TargetPlatform.iOS, KyeobomAdFormat.banner) => iosBanner,
+      (TargetPlatform.iOS, KyeobomAdFormat.native) => iosNative,
+      _ => '',
+    };
+    return _valid(value, appId: false) ? value : null;
+  }
+
+  static String? unitId({
+    required TargetPlatform platform,
+    required KyeobomAdFormat format,
+    required bool release,
+  }) {
+    if (!isEnabled(platform: platform, release: release)) return null;
+    if (release) return productionUnit(platform: platform, format: format);
+    return switch ((platform, format)) {
+      (TargetPlatform.android, KyeobomAdFormat.banner) => _androidBannerDemo,
+      (TargetPlatform.android, KyeobomAdFormat.native) => _androidNativeDemo,
+      (TargetPlatform.iOS, KyeobomAdFormat.banner) => _iosBannerDemo,
+      (TargetPlatform.iOS, KyeobomAdFormat.native) => _iosNativeDemo,
+      _ => null,
+    };
+  }
+
+  static KyeobomAdFormat choose({
+    required bool nativeAssigned,
+    required String override,
+  }) {
+    if (override == 'native') return KyeobomAdFormat.native;
+    if (override == 'banner') return KyeobomAdFormat.banner;
+    return nativeAssigned
+        ? KyeobomAdFormat.native
+        : KyeobomAdFormat.banner;
+  }
+
+  /// Stable 50/50 assignment per installation. No Firebase writes,
+  /// personal identifier or tracking beyond this device's preferences.
+  static Future<KyeobomAdFormat> assignedFormat() async {
+    if (formatOverride == 'banner' || formatOverride == 'native') {
+      return choose(nativeAssigned: false, override: formatOverride);
+    }
+    try {
+      final prefs = SharedPreferencesAsync();
+      const key = 'kyeobom_ad_format_experiment_v1';
+      var assigned = await prefs.getString(key);
+      if (assigned != 'banner' && assigned != 'native') {
+        assigned = Random.secure().nextBool() ? 'native' : 'banner';
+        await prefs.setString(key, assigned);
+      }
+      return assigned == 'native'
+          ? KyeobomAdFormat.native
+          : KyeobomAdFormat.banner;
+    } catch (_) {
+      // Ad selection failure must never affect the camera.
+      return KyeobomAdFormat.banner;
+    }
+  }
+}
+).hasMatch(text)
         : RegExp(r'^ca-app-pub-\\d{16}/\\d{10}$').hasMatch(text);
   }
 
