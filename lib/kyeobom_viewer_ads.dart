@@ -41,7 +41,16 @@ class _KyeobomViewerHomeAdState extends State<KyeobomViewerHomeAd> {
 
   static Future<void> _startSdk() async {
     try {
-      await MobileAds.instance.initialize();
+      await MobileAds.instance.updateRequestConfiguration(
+        RequestConfiguration(maxAdContentRating: MaxAdContentRating.g),
+      );
+      final status = await MobileAds.instance.initialize();
+      if (kDebugMode) {
+        for (final entry in status.adapterStatuses.entries) {
+          debugPrint('[kyeobom/ads] mediation adapter ${entry.key}: '
+              '${entry.value.state} · ${entry.value.description}');
+        }
+      }
     } catch (_) {
       // SDK failure can retry at the next dashboard entry.
       _sharedSdkInitialization = null;
@@ -300,6 +309,10 @@ class _KyeobomViewerHomeAdState extends State<KyeobomViewerHomeAd> {
             return;
           }
           KyeobomAdMetrics.record(KyeobomAdFormat.native, 'loaded');
+          if (kDebugMode) {
+            debugPrint('[kyeobom/ads] native mediation: '
+                '${ad.responseInfo?.mediationAdapterClassName}');
+          }
           setState(() {
             _loaded = true;
             _adHeight = 110;
@@ -325,6 +338,7 @@ class _KyeobomViewerHomeAdState extends State<KyeobomViewerHomeAd> {
       ),
     );
     _native = ad;
+    KyeobomAdMetrics.record(KyeobomAdFormat.native, 'requested');
     unawaited(ad.load().catchError((Object error) {
       if (kDebugMode) debugPrint('[kyeobom/ads] native load: $error');
       if (_native == ad) {
@@ -361,6 +375,10 @@ class _KyeobomViewerHomeAdState extends State<KyeobomViewerHomeAd> {
             return;
           }
           KyeobomAdMetrics.record(KyeobomAdFormat.banner, 'loaded');
+          if (kDebugMode) {
+            debugPrint('[kyeobom/ads] banner mediation: '
+                '${ad.responseInfo?.mediationAdapterClassName}');
+          }
           setState(() {
             _loaded = true;
             _adHeight = size.height;
@@ -385,6 +403,7 @@ class _KyeobomViewerHomeAdState extends State<KyeobomViewerHomeAd> {
       ),
     );
     _banner = ad;
+    KyeobomAdMetrics.record(KyeobomAdFormat.banner, 'requested');
     unawaited(ad.load().catchError((Object error) {
       if (kDebugMode) debugPrint('[kyeobom/ads] banner load: $error');
       if (_banner == ad) {
@@ -412,6 +431,18 @@ class _KyeobomViewerHomeAdState extends State<KyeobomViewerHomeAd> {
         title: const Text('광고 QA (로컬 데이터)'),
         content: SelectableText(data),
         actions: [
+          if (kDebugMode)
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                MobileAds.instance.openAdInspector((error) {
+                  if (error != null) {
+                    debugPrint('[kyeobom/ads] inspector: $error');
+                  }
+                });
+              },
+              child: const Text('광고 인스펙터'),
+            ),
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
             child: const Text('닫기'),
