@@ -35,6 +35,22 @@ class StationMicrophone {
 
   final void Function(bool capturing, String? message) onState;
 
+  /// Station-only, explicit user action: request permission, then release
+  /// the captured audio immediately. Standby remains mic OFF.
+  static Future<void> preparePermission() async {
+    final stream = await navigator.mediaDevices.getUserMedia({
+      'audio': true,
+      'video': false,
+    });
+    try {
+      for (final track in stream.getTracks()) {
+        await track.stop();
+      }
+    } finally {
+      await stream.dispose();
+    }
+  }
+
   DocumentReference<Map<String, dynamic>>? _doc;
   RTCPeerConnection? _peer;
   MediaStream? _stream;
