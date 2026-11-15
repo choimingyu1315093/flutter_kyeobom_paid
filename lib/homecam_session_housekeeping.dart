@@ -14,6 +14,15 @@ abstract final class HomeCamSessionHousekeeping {
   static const _keepEndedFor = Duration(hours: 48);
   static const _maxSessionsPerRun = 12;
 
+  /// Only sessions explicitly ended for more than 48 hours qualify.
+  /// An active session is never removed, regardless of its duration.
+  static bool shouldRemove(Map<String, dynamic> data, DateTime now) {
+    final endedAt = data['endedAt'];
+    return data['state'] == 'ended' &&
+        endedAt is Timestamp &&
+        endedAt.toDate().isBefore(now.subtract(_keepEndedFor));
+  }
+
   static Future<void> runIfDue() async {
     final account = FirebaseAuth.instance.currentUser;
     if (account == null) return;
@@ -36,14 +45,8 @@ abstract final class HomeCamSessionHousekeeping {
           .limit(_maxSessionsPerRun)
           .get();
 
-      final expiredBefore = now.subtract(_keepEndedFor);
       for (final session in results.docs) {
-        final endedAt = session.data()['endedAt'];
-        if (endedAt is! Timestamp ||
-            !endedAt.toDate().isBefore(expiredBefore) ||
-            session.data()['state'] != 'ended') {
-          continue;
-        }
+        if (!shouldRemove(session.data(), now)) continue;
 
         // Firestore does NOT recursively delete nested collections.
         // Keep these known signaling subcollections tidy as well.
