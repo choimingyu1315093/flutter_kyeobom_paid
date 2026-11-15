@@ -15,6 +15,7 @@ import 'video_orientation.dart';
 import 'viewer_video_controls.dart';
 import 'kyeobom_design.dart';
 import 'kyeobom_screens.dart';
+import 'kyeobom_auth_screens.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
