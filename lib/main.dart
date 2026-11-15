@@ -9,6 +9,7 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 import 'remote_control.dart';
 import 'webrtc_session.dart';
+import 'viewer_video_controls.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -422,7 +423,9 @@ class _ViewerScreenState extends State<ViewerScreen>
                 color: Colors.black,
                 alignment: Alignment.center,
                 child: _watching && renderer != null
-                    ? RTCVideoView(renderer)
+                    ? ViewerVideoControls(
+                        video: RTCVideoView(renderer),
+                      )
                     : const Icon(Icons.videocam_off_outlined,
                         size: 60, color: Colors.white38),
               ),
