@@ -280,7 +280,12 @@ class _StationScreenState extends State<StationScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _foreground = state == AppLifecycleState.resumed;
-    if (!_foreground && !_leaving) {
+    // Camera/microphone permission sheets can briefly mark iOS as inactive.
+    // Only stop a stream when the app actually backgrounds.
+    final background = state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.detached;
+    if (background && !_leaving) {
       if (mounted) {
         setState(() => _status = '앱 비활성화 · 영상 송출 중단');
       }
@@ -499,7 +504,10 @@ class _ViewerScreenState extends State<ViewerScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state != AppLifecycleState.resumed && !_leaving && _watching) {
+    final background = state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.detached;
+    if (background && !_leaving && _watching) {
       unawaited(_stop());
     }
   }
