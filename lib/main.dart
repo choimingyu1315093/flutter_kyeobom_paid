@@ -9,6 +9,8 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 import 'remote_control.dart';
 import 'webrtc_session.dart';
+import 'audio_session.dart';
+import 'video_orientation.dart';
 import 'viewer_video_controls.dart';
 import 'viewer_video_controls.dart';
 
@@ -114,6 +116,7 @@ class _StationScreenState extends State<StationScreen>
     with WidgetsBindingObserver {
   static const _screen = MethodChannel('home_camera/screen');
   late final HomeCamWebRtcSession _rtc;
+  late final StationMicrophone _microphone;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _commands;
   Future<void> _commandQueue = Future<void>.value();
 
@@ -122,10 +125,20 @@ class _StationScreenState extends State<StationScreen>
   bool _foreground = true;
   bool _streaming = false;
   bool _leaving = false;
+  bool _microphoneOn = false;
+  bool _microphoneBusy = false;
+  String? _microphoneMessage;
 
   @override
   void initState() {
     super.initState();
+    _microphone = StationMicrophone(onState: (capturing, message) {
+      if (!mounted) return;
+      setState(() {
+        _microphoneOn = capturing;
+        _microphoneMessage = message;
+      });
+    });
     _rtc = HomeCamWebRtcSession(
       onStatus: (value) {
         if (mounted) setState(() => _status = value);
@@ -226,11 +239,32 @@ class _StationScreenState extends State<StationScreen>
     }
   }
 
+  Future<void> _toggleStationMicrophone() async {
+    if (_microphoneBusy || _leaving || !_streaming) return;
+    final sessionId = _rtc.sessionId;
+    if (sessionId == null) return;
+    setState(() => _microphoneBusy = true);
+    try {
+      if (_microphone.isOn) {
+        await _microphone.disable();
+      } else {
+        await _microphone.enable(sessionId);
+      }
+    } catch (error) {
+      if (mounted) setState(() => _microphoneMessage = '마이크 오류: $error');
+    } finally {
+      if (mounted) setState(() => _microphoneBusy = false);
+    }
+  }
+
   Future<void> _finishStream() async {
+    await _microphone.disable();
     if (_rtc.isRunning) await _rtc.end();
     if (mounted && !_leaving) {
       setState(() {
         _streaming = false;
+        _microphoneOn = false;
+        _microphoneMessage = null;
         _status = '연결 대기 중';
       });
     }
@@ -241,6 +275,7 @@ class _StationScreenState extends State<StationScreen>
     setState(() => _leaving = true);
     await _commands?.cancel();
     try {
+      await _microphone.disable();
       await _rtc.end();
       await RemoteControl.instance.stopStation();
     } finally {
@@ -251,7 +286,12 @@ class _StationScreenState extends State<StationScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _foreground = state == AppLifecycleState.resumed;
-    if (!_foreground && !_leaving) {
+    // iOS microphone permission sheet may temporarily set "inactive".
+    // Stop only when actually backgrounded.
+    final background = state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached;
+    if (background && !_leaving) {
       if (mounted) {
         setState(() => _status = '앱 비활성화 · 영상 송출 중단');
       }
@@ -269,6 +309,7 @@ class _StationScreenState extends State<StationScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     unawaited(_commands?.cancel());
+    unawaited(_microphone.disable());
     unawaited(_rtc.end(notifyRemote: !_leaving));
     if (!_leaving) unawaited(RemoteControl.instance.stopStation());
     unawaited(_screen.invokeMethod<void>('disableWaitingMode'));
@@ -298,10 +339,27 @@ class _StationScreenState extends State<StationScreen>
                 const SizedBox(height: 12),
                 Text(
                   _streaming
-                      ? '후면 카메라 ON · 마이크 OFF · 녹화 OFF'
+                      ? '후면 카메라 ON · 마이크 ${_microphoneOn ? "ON" : "OFF"} · 녹화 OFF'
                       : '카메라 OFF · 마이크 OFF · 녹화 OFF',
                   style: const TextStyle(color: Colors.white30, fontSize: 12),
                 ),
+                if (_streaming) ...[
+                  const SizedBox(height: 14),
+                  OutlinedButton.icon(
+                    onPressed: _microphoneBusy ? null : _toggleStationMicrophone,
+                    icon: Icon(_microphoneOn ? Icons.mic : Icons.mic_off),
+                    label: Text(_microphoneBusy
+                        ? '마이크 전환 중'
+                        : _microphoneOn ? '마이크 끄기' : '마이크 켜기'),
+                  ),
+                  if (_microphoneMessage != null)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: Text(_microphoneMessage!,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(color: Colors.white54, fontSize: 12)),
+                    ),
+                ],
                 const SizedBox(height: 28),
                 TextButton(
                   onPressed: _leaving ? null : _leave,
@@ -324,6 +382,9 @@ class ViewerScreen extends StatefulWidget {
 class _ViewerScreenState extends State<ViewerScreen>
     with WidgetsBindingObserver {
   late final HomeCamWebRtcSession _rtc;
+  late final ViewerAudio _viewerAudio;
+  bool _remoteAudioOn = false;
+  String? _remoteAudioMessage;
   String _status = '실시간 보기를 누르면 원격 연결합니다';
   bool _busy = false;
   bool _watching = false;
@@ -334,6 +395,15 @@ class _ViewerScreenState extends State<ViewerScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _viewerAudio = ViewerAudio(onState: (receiving, message) {
+      if (!mounted) return;
+      if (_remoteAudioOn != receiving || _remoteAudioMessage != message) {
+        setState(() {
+          _remoteAudioOn = receiving;
+          _remoteAudioMessage = message;
+        });
+      }
+    });
     _rtc = HomeCamWebRtcSession(
       onStatus: (value) {
         if (mounted) setState(() => _status = value);
@@ -379,6 +449,12 @@ class _ViewerScreenState extends State<ViewerScreen>
         return;
       }
       setState(() => _watching = true);
+      // Audio listens independently; it must never break the video session.
+      try {
+        await _viewerAudio.attach(_rtc.sessionId!);
+      } catch (error) {
+        if (mounted) setState(() => _remoteAudioMessage = '오디오 준비 오류: $error');
+      }
 
       try {
         await _enterLandscape();
@@ -404,6 +480,7 @@ class _ViewerScreenState extends State<ViewerScreen>
     });
 
     try {
+      await _viewerAudio.detach();
       await _rtc.end(notifyRemote: notifyRemote);
       if (notifyRemote && id != null) {
         await RemoteControl.instance.requestStop(id);
@@ -429,6 +506,7 @@ class _ViewerScreenState extends State<ViewerScreen>
     final id = _rtc.sessionId;
 
     try {
+      await _viewerAudio.detach();
       await _rtc.end();
       if (id != null) {
         await RemoteControl.instance.requestStop(id);
@@ -457,6 +535,7 @@ class _ViewerScreenState extends State<ViewerScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    unawaited(_viewerAudio.detach());
     unawaited(_rtc.end());
     if (_landscapeLocked) unawaited(_restoreOrientation());
     super.dispose();
@@ -468,11 +547,26 @@ class _ViewerScreenState extends State<ViewerScreen>
       color: Colors.black,
       alignment: Alignment.center,
       child: _watching && renderer != null
-          ? ViewerVideoControls(
-              video: RTCVideoView(
-                renderer,
-                objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitContain,
-              ),
+          ? AnimatedBuilder(
+              animation: renderer,
+              builder: (context, _) {
+                final landscape = MediaQuery.orientationOf(context) ==
+                    Orientation.landscape;
+                final quarterTurns = videoQuarterTurns(
+                  viewerLandscape: landscape,
+                  videoWidth: renderer.videoWidth,
+                  videoHeight: renderer.videoHeight,
+                );
+                return ViewerVideoControls(
+                  video: RotatedBox(
+                    quarterTurns: quarterTurns,
+                    child: RTCVideoView(
+                      renderer,
+                      objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitContain,
+                    ),
+                  ),
+                );
+              },
             )
           : const Icon(Icons.videocam_off_outlined,
               size: 60, color: Colors.white38),
@@ -507,11 +601,17 @@ class _ViewerScreenState extends State<ViewerScreen>
                     top: 12,
                     left: 70,
                     right: 12,
-                    child: Text(_status,
+                    child: Text(_remoteAudioMessage ?? _status,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(color: Colors.white70)),
                   ),
+                  if (_remoteAudioOn)
+                    const Positioned(
+                      top: 50,
+                      right: 12,
+                      child: Chip(label: Text('거치폰 마이크 ON')),
+                    ),
                   Positioned(
                     left: 12,
                     bottom: 12,
@@ -542,7 +642,7 @@ class _ViewerScreenState extends State<ViewerScreen>
                       const SizedBox(height: 8),
                       const Text('가로모드 자동 전환 · 두 손가락 확대/축소',
                           style: TextStyle(color: Colors.white54, fontSize: 12)),
-                      const Text('마이크 기능은 영상 안정성 검증 전까지 비활성화',
+                      const Text('마이크 ON/OFF는 거치폰에서 조작 · 영상 연결과 분리',
                           style: TextStyle(color: Colors.white54, fontSize: 12)),
                     ]),
                   ),
