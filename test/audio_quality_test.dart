@@ -40,8 +40,13 @@ void main() {
     expect(c['video'], false);
     final audio = c['audio'] as Map<String, dynamic>;
     final optional = audio['optional'] as List<dynamic>;
-    expect(optional, contains({'googEchoCancellation': 'false'}));
-    expect(optional, contains({'googAutoGainControl': 'false'}));
-    expect(optional, contains({'googNoiseSuppression': 'false'}));
+    // Dart Map entries in a List are not identical objects. Compare the
+    // flag values rather than relying on List.contains(Map) identity.
+    expect(optional.any((entry) =>
+        entry is Map && entry['googEchoCancellation'] == 'false'), isTrue);
+    expect(optional.any((entry) =>
+        entry is Map && entry['googAutoGainControl'] == 'false'), isTrue);
+    expect(optional.any((entry) =>
+        entry is Map && entry['googNoiseSuppression'] == 'false'), isTrue);
   });
 }
