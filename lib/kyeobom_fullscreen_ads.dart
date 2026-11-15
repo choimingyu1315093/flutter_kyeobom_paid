@@ -34,6 +34,7 @@ class KyeobomFullscreenAds {
   bool _loadAppOpenInProgress = false;
   bool _loadInterstitialInProgress = false;
   bool _loadRewardedInProgress = false;
+  bool _rewardGrantedPending = false;
   bool _ignoreNextForeground = false;
 
   bool get isShowing => _showing;
@@ -69,6 +70,7 @@ class KyeobomFullscreenAds {
     }
     hideHomeAds.value =
         await KyeobomAdLocalState.instance.hasAdFreeReward(DateTime.now());
+    _rewardGrantedPending = hideHomeAds.value;
     final viewed = await KyeobomAdLocalState.instance.completedViews();
     if (!_viewerHome || _live || !_consentAllowed) return;
 
@@ -342,7 +344,8 @@ class KyeobomFullscreenAds {
   void _loadRewarded() {
     if (!_viewerHome || _live || !_foreground || !_consentAllowed ||
         !_enabled(KyeobomAdFormat.rewarded) ||
-        hideHomeAds.value || _rewarded != null || _loadRewardedInProgress) {
+        hideHomeAds.value || _rewardGrantedPending ||
+        _rewarded != null || _loadRewardedInProgress) {
       return;
     }
     final unit = _id(KyeobomAdFormat.rewarded);
@@ -355,7 +358,8 @@ class KyeobomFullscreenAds {
       rewardedAdLoadCallback: RewardedAdLoadCallback(
         onAdLoaded: (ad) {
           _loadRewardedInProgress = false;
-          if (!_consentAllowed) {
+          if (!_consentAllowed || hideHomeAds.value ||
+              _rewardGrantedPending) {
             unawaited(ad.dispose());
             return;
           }
@@ -413,6 +417,7 @@ class KyeobomFullscreenAds {
     );
     unawaited(ad.show(
       onUserEarnedReward: (ad, reward) {
+        _rewardGrantedPending = true;
         unawaited(_grantHomeAdFreeReward());
       },
     ).catchError((Object error) {
