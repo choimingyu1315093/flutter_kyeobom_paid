@@ -19,6 +19,24 @@ fi
 command -v sips >/dev/null || { echo "macOS sips가 필요합니다." >&2; exit 1; }
 command -v python3 >/dev/null || { echo "python3가 필요합니다." >&2; exit 1; }
 
+# Check exact file type and avoid silently stretching a non-square asset.
+python3 - "$SOURCE" <<'PY'
+import struct
+import sys
+from pathlib import Path
+
+p = Path(sys.argv[1])
+header = p.open("rb").read(24)
+if header[:8] != b"\\x89PNG\\r\\n\\x1a\\n":
+    sys.exit("원본은 PNG 형식이어야 합니다: " + str(p))
+width, height = struct.unpack(">II", header[16:24])
+if width != height:
+    sys.exit(f"아이콘은 정사각형이어야 합니다: {width}x{height}")
+if width < 512:
+    print(f"경고: {width}x{height} 원본은 iOS 1024px 아이콘에서 흐릴 수 있습니다.")
+print(f"사용자 앱 아이콘 확인: {width}x{height}")
+PY
+
 mkdir -p "$ROOT/assets/branding"
 cp "$SOURCE" "$ROOT/assets/branding/app_icon_real.png"
 
