@@ -152,7 +152,6 @@ class _KyeobomViewerHomeAdState extends State<KyeobomViewerHomeAd> {
         return;
       }
       _consentGranted = true;
-      unawaited(KyeobomFullscreenAds.instance.onViewerHomeWithConsent());
       await _loadIfPermitted();
     } catch (error) {
       if (kDebugMode) debugPrint('[kyeobom/ads] $error');
@@ -181,7 +180,6 @@ class _KyeobomViewerHomeAdState extends State<KyeobomViewerHomeAd> {
         _consentNeedsAction = !permitted;
       });
       if (permitted) {
-        unawaited(KyeobomFullscreenAds.instance.onViewerHomeWithConsent());
         await _loadIfPermitted();
       } else {
         KyeobomFullscreenAds.instance.revokeConsent();
@@ -221,7 +219,6 @@ class _KyeobomViewerHomeAdState extends State<KyeobomViewerHomeAd> {
         });
       } else if (!_loaded) {
         setState(() => _consentNeedsAction = false);
-        unawaited(KyeobomFullscreenAds.instance.onViewerHomeWithConsent());
         await _loadIfPermitted();
       }
     } catch (error) {
@@ -241,6 +238,8 @@ class _KyeobomViewerHomeAdState extends State<KyeobomViewerHomeAd> {
       _sdkInitialized = true;
     }
     if (!mounted || _disposed || _loaded) return;
+    // Fullscreen mediation/ad loads must wait for Google SDK initialization.
+    unawaited(KyeobomFullscreenAds.instance.onViewerHomeWithConsent());
     _format = await KyeobomAdPolicy.assignedFormat();
     if (!mounted || _disposed) return;
     final canNative = KyeobomAdPolicy.unitId(
@@ -435,7 +434,9 @@ class _KyeobomViewerHomeAdState extends State<KyeobomViewerHomeAd> {
     if (!_allowed) return const SizedBox.shrink();
     // A failed/no-fill ad occupies no ad space so the viewer's main action
     // always remains obvious and unobstructed.
-    if (!_loaded && !_consentNeedsAction && !_privacyRequired && !kDebugMode) {
+    if (!_loaded && !_rewardSuppressesHome &&
+        !_consentNeedsAction && !_privacyRequired && !kDebugMode &&
+        !KyeobomAdPolicy.enableRewarded) {
       return const SizedBox.shrink();
     }
     return Padding(
