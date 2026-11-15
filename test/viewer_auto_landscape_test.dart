@@ -16,7 +16,7 @@ void main() {
     expect(find.text('가로 보기'), findsNothing);
     expect(find.text('자동 회전'), findsNothing);
     expect(find.byTooltip('영상 90도 회전'), findsNothing);
-    expect(find.textContaining('마이크 기능은 영상 안정성 검증 전까지 비활성화'),
+    expect(find.textContaining('마이크 ON/OFF는 거치폰에서 조작'),
         findsOneWidget);
   });
 }
