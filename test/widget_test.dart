@@ -6,10 +6,10 @@ void main() {
   testWidgets('Station start notice must be confirmed', (tester) async {
     await tester.pumpWidget(const MaterialApp(home: RoleSelectionScreen()));
 
-    expect(find.text('거치폰 · 카메라 대기'), findsOneWidget);
-    expect(find.text('뷰어폰 · 실시간 보기'), findsOneWidget);
+    expect(find.text('홈캠으로 사용'), findsOneWidget);
+    expect(find.text('홈캠 보기'), findsOneWidget);
 
-    await tester.tap(find.text('거치폰 · 카메라 대기'));
+    await tester.tap(find.text('홈캠으로 사용'));
     await tester.pumpAndSettle();
 
     expect(find.text('홈캠 대기 모드가 시작됩니다.'), findsOneWidget);
@@ -21,6 +21,6 @@ void main() {
 
     await tester.tap(find.text('취소'));
     await tester.pumpAndSettle();
-    expect(find.text('거치폰 · 카메라 대기'), findsOneWidget);
+    expect(find.text('홈캠으로 사용'), findsOneWidget);
   });
 }
