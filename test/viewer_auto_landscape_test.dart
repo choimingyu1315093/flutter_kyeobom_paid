@@ -16,7 +16,7 @@ void main() {
     expect(find.text('가로 보기'), findsNothing);
     expect(find.text('자동 회전'), findsNothing);
     expect(find.byTooltip('영상 90도 회전'), findsNothing);
-    expect(find.textContaining('연결 후 가로 화면으로 전환'),
+    expect(find.textContaining('가로 화면으로 전환됩니다'),
         findsOneWidget);
   });
 }
