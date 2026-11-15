@@ -451,6 +451,10 @@ class ViewerScreen extends StatefulWidget {
 
 class _ViewerScreenState extends State<ViewerScreen>
     with WidgetsBindingObserver {
+  static const _orientationChannel = MethodChannel('home_camera/screen');
+  Timer? _orientationTimer;
+  bool _orientationQueryBusy = false;
+  bool _landscapeRight = false;
   late final HomeCamWebRtcSession _rtc;
   late final ViewerAudio _viewerAudio;
   bool _remoteAudioOn = false;
@@ -482,19 +486,54 @@ class _ViewerScreenState extends State<ViewerScreen>
     );
   }
 
-  /// Enter landscape only when the user explicitly starts live viewing.
+  /// Allow both horizontal orientations so a physical 180° phone rotation
+  /// also rotates all Flutter controls, system text, and the video surface.
   Future<void> _enterLandscape() async {
     await SystemChrome.setPreferredOrientations([
       DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
     ]);
     _landscapeLocked = true;
+    _orientationTimer?.cancel();
+    _orientationTimer = Timer.periodic(
+      const Duration(milliseconds: 600),
+      (_) => unawaited(_refreshDisplaySide()),
+    );
+    unawaited(_refreshDisplaySide());
+  }
+
+  /// Width/height are unchanged when landscapeLeft flips to landscapeRight.
+  /// Ask native UI orientation while viewing so video pixel correction flips
+  /// with the physical device, not only the overlay buttons.
+  Future<void> _refreshDisplaySide() async {
+    if (_orientationQueryBusy || !_landscapeLocked || !mounted) return;
+    _orientationQueryBusy = true;
+    try {
+      final side = await _orientationChannel.invokeMethod<String>(
+        'getViewerLandscapeSide',
+      );
+      if (!mounted || !_landscapeLocked) return;
+      if (side == 'left' || side == 'right') {
+        final right = side == 'right';
+        if (_landscapeRight != right) {
+          setState(() => _landscapeRight = right);
+        }
+      }
+    } catch (_) {
+      // Continue with last known side; orientation cannot break video.
+    } finally {
+      _orientationQueryBusy = false;
+    }
   }
 
   /// Return to portrait first, then release the orientation restriction.
   /// No permanent phone setting is changed.
   Future<void> _restoreOrientation() async {
+    _orientationTimer?.cancel();
+    _orientationTimer = null;
     if (!_landscapeLocked) return;
     _landscapeLocked = false;
+    _landscapeRight = false;
     try {
       await SystemChrome.setPreferredOrientations([
         DeviceOrientation.portraitUp,
@@ -605,6 +644,7 @@ class _ViewerScreenState extends State<ViewerScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _orientationTimer?.cancel();
     unawaited(_viewerAudio.detach());
     unawaited(_rtc.end());
     if (_landscapeLocked) unawaited(_restoreOrientation());
@@ -622,8 +662,10 @@ class _ViewerScreenState extends State<ViewerScreen>
               builder: (context, _) {
                 final landscape = MediaQuery.orientationOf(context) ==
                     Orientation.landscape;
-                final quarterTurns =
-                    videoQuarterTurns(viewerLandscape: landscape);
+                final quarterTurns = videoQuarterTurns(
+                  viewerLandscape: landscape,
+                  landscapeRight: _landscapeRight,
+                );
                 return ViewerVideoControls(
                   video: RotatedBox(
                     quarterTurns: quarterTurns,
@@ -681,7 +723,10 @@ class _ViewerScreenState extends State<ViewerScreen>
                     const Positioned(
                       top: 50,
                       right: 12,
-                      child: Chip(label: Text('거치폰 마이크 ON')),
+                      child: Chip(
+                        avatar: Icon(Icons.volume_up),
+                        label: Text('거치폰 소리 듣는 중'),
+                      ),
                     ),
                   Positioned(
                     left: 12,
@@ -714,7 +759,7 @@ class _ViewerScreenState extends State<ViewerScreen>
                       const SizedBox(height: 8),
                       const Text('가로모드 자동 전환 · 두 손가락 확대/축소',
                           style: TextStyle(color: Colors.white54, fontSize: 12)),
-                      const Text('마이크 ON/OFF는 거치폰에서 조작 · 영상 연결과 분리',
+                      const Text('소리는 거치폰 마이크로만 수집 · 뷰어폰은 재생만 합니다',
                           style: TextStyle(color: Colors.white54, fontSize: 12)),
                     ]),
                   ),
