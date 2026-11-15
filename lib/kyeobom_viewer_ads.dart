@@ -6,6 +6,8 @@ import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import 'kyeobom_ad_policy.dart';
 import 'kyeobom_ad_metrics.dart';
+import 'kyeobom_ad_frequency.dart';
+import 'kyeobom_fullscreen_ads.dart';
 import 'kyeobom_design.dart';
 
 /// Production app enables ad requests explicitly at its root.
@@ -55,6 +57,7 @@ class _KyeobomViewerHomeAdState extends State<KyeobomViewerHomeAd> {
   bool _privacyRequired = false;
   bool _consentNeedsAction = false;
   bool _consentGranted = false;
+  bool _rewardSuppressesHome = false;
   KyeobomAdFormat _format = KyeobomAdFormat.banner;
   int _adHeight = 0;
   bool _sdkInitialized = false;
@@ -68,10 +71,34 @@ class _KyeobomViewerHomeAdState extends State<KyeobomViewerHomeAd> {
   @override
   void initState() {
     super.initState();
+    KyeobomFullscreenAds.instance.hideHomeAds.addListener(_onRewardChanged);
     // The ad SDK/UMP is never touched on station/streaming screens.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && _allowed) unawaited(_prepare());
     });
+  }
+
+  void _onRewardChanged() {
+    if (!mounted || _disposed) return;
+    final rewarded = KyeobomFullscreenAds.instance.hideHomeAds.value;
+    if (_rewardSuppressesHome == rewarded) return;
+    if (rewarded) {
+      final native = _native;
+      final banner = _banner;
+      setState(() {
+        _rewardSuppressesHome = true;
+        _loaded = false;
+        _native = null;
+        _banner = null;
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (native != null) unawaited(native.dispose());
+        if (banner != null) unawaited(banner.dispose());
+      });
+    } else {
+      setState(() => _rewardSuppressesHome = false);
+      if (_consentGranted) unawaited(_loadIfPermitted());
+    }
   }
 
   Future<void> _refreshPrivacyRequirement() async {
@@ -125,6 +152,7 @@ class _KyeobomViewerHomeAdState extends State<KyeobomViewerHomeAd> {
         return;
       }
       _consentGranted = true;
+      unawaited(KyeobomFullscreenAds.instance.onViewerHomeWithConsent());
       await _loadIfPermitted();
     } catch (error) {
       if (kDebugMode) debugPrint('[kyeobom/ads] $error');
@@ -152,7 +180,12 @@ class _KyeobomViewerHomeAdState extends State<KyeobomViewerHomeAd> {
         _consentGranted = permitted;
         _consentNeedsAction = !permitted;
       });
-      if (permitted) await _loadIfPermitted();
+      if (permitted) {
+        unawaited(KyeobomFullscreenAds.instance.onViewerHomeWithConsent());
+        await _loadIfPermitted();
+      } else {
+        KyeobomFullscreenAds.instance.revokeConsent();
+      }
     } catch (error) {
       if (kDebugMode) debugPrint('[kyeobom/ads] consent form: $error');
     }
@@ -172,6 +205,7 @@ class _KyeobomViewerHomeAdState extends State<KyeobomViewerHomeAd> {
       final permitted = await ConsentInformation.instance.canRequestAds();
       _consentGranted = permitted;
       if (!permitted) {
+        KyeobomFullscreenAds.instance.revokeConsent();
         final oldNative = _native;
         final oldBanner = _banner;
         setState(() {
@@ -187,6 +221,7 @@ class _KyeobomViewerHomeAdState extends State<KyeobomViewerHomeAd> {
         });
       } else if (!_loaded) {
         setState(() => _consentNeedsAction = false);
+        unawaited(KyeobomFullscreenAds.instance.onViewerHomeWithConsent());
         await _loadIfPermitted();
       }
     } catch (error) {
@@ -197,6 +232,10 @@ class _KyeobomViewerHomeAdState extends State<KyeobomViewerHomeAd> {
   Future<void> _loadIfPermitted() async {
     if (!mounted || _disposed || _loaded || !_allowed ||
         !_consentGranted) return;
+    if (await KyeobomAdLocalState.instance.hasAdFreeReward(DateTime.now())) {
+      KyeobomFullscreenAds.instance.hideHomeAds.value = true;
+      return;
+    }
     if (!_sdkInitialized) {
       await _initializeSdkOnce();
       _sdkInitialized = true;
@@ -386,6 +425,7 @@ class _KyeobomViewerHomeAdState extends State<KyeobomViewerHomeAd> {
   @override
   void dispose() {
     _disposed = true;
+    KyeobomFullscreenAds.instance.hideHomeAds.removeListener(_onRewardChanged);
     _clearAd();
     super.dispose();
   }
@@ -403,6 +443,15 @@ class _KyeobomViewerHomeAdState extends State<KyeobomViewerHomeAd> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          if (_rewardSuppressesHome)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 9),
+              child: Text(
+                '선택한 보상으로 홈 광고가 12시간 숨겨졌어요.',
+                style: TextStyle(color: KyeobomPalette.muted, fontSize: 11),
+                textAlign: TextAlign.center,
+              ),
+            ),
           if (_loaded) ...[
             const Padding(
               padding: EdgeInsets.only(bottom: 7),
@@ -439,6 +488,19 @@ class _KyeobomViewerHomeAdState extends State<KyeobomViewerHomeAd> {
               onPressed: _showPrivacyOptions,
               child: const Text('광고 개인정보 설정',
                 style: TextStyle(fontSize: 11)),
+            ),
+          if (KyeobomAdPolicy.enableRewarded && !_rewardSuppressesHome)
+            ValueListenableBuilder<bool>(
+              valueListenable: KyeobomFullscreenAds.instance.rewardedAvailable,
+              builder: (context, available, child) => available
+                  ? TextButton.icon(
+                      onPressed: () => unawaited(
+                        KyeobomFullscreenAds.instance.showRewardedOnTap()),
+                      icon: const Icon(Icons.volunteer_activism_outlined, size: 16),
+                      label: const Text('선택 광고 시청 후 홈 광고 12시간 숨기기',
+                        style: TextStyle(fontSize: 11)),
+                    )
+                  : const SizedBox.shrink(),
             ),
           if (kDebugMode)
             Align(
