@@ -14,7 +14,49 @@ String tuneMonitoringOpus(String? sdp) {
   final index = original.indexWhere((line) => opusLine.hasMatch(line.trim()));
   if (index < 0) return sdp;
   final pt = opusLine.firstMatch(original[index].trim())!.group(1)!;
-  final fmtpRe = RegExp('^a=fmtp:$pt\\\\s+(.+)$');
+  final fmtpRe = RegExp(r'^a=fmtp:' + pt + r'\s+(.+)
+  final fmtpIndex = original.indexWhere((line) => fmtpRe.hasMatch(line));
+  const tuning = <String,String>{
+    'maxaveragebitrate':'48000',
+    'useinbandfec':'1',
+    'usedtx':'0',
+  };
+  if (fmtpIndex >= 0) {
+    final match = fmtpRe.firstMatch(original[fmtpIndex])!;
+    final values = <String,String>{};
+    for (final item in match.group(1)!.split(';')) {
+      final pair = item.trim().split('=');
+      if (pair.length == 2 && pair[0].isNotEmpty) {
+        values[pair[0].toLowerCase()] = pair[1];
+      }
+    }
+    values.addAll(tuning);
+    original[fmtpIndex] =
+        'a=fmtp:$pt ' + values.entries.map((e) => '${e.key}=${e.value}').join(';');
+  } else {
+    original.insert(index + 1,
+        'a=fmtp:$pt ' + tuning.entries.map((e) => '${e.key}=${e.value}').join(';'));
+  }
+  return original.join(newline);
+}
+
+/// Keep telephony voice processing from unintentionally flattening very soft
+/// nearby sounds. Optional flags are non-fatal if a device ignores them.
+Map<String, dynamic> stationRoomAudioConstraints() => {
+  'audio': {
+    'optional': <Map<String,String>>[
+      {'googEchoCancellation':'false'},
+      {'googEchoCancellation2':'false'},
+      {'googDAEchoCancellation':'false'},
+      {'googAutoGainControl':'false'},
+      {'googNoiseSuppression':'false'},
+      {'googHighpassFilter':'false'},
+      {'googTypingNoiseDetection':'false'},
+    ],
+  },
+  'video': false,
+};
+);
   final fmtpIndex = original.indexWhere((line) => fmtpRe.hasMatch(line));
   const tuning = <String,String>{
     'maxaveragebitrate':'48000',
