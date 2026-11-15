@@ -5,7 +5,7 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 import 'remote_control.dart';
 
-/// One on-demand, video-only WebRTC session.
+/// One on-demand WebRTC session. The microphone is opt-in and OFF by default.
 ///
 /// Firebase transfers SDP/ICE messages only. Video is sent by WebRTC.
 /// This prototype uses STUN but does not yet configure TURN, so connections
@@ -14,10 +14,12 @@ class HomeCamWebRtcSession {
   HomeCamWebRtcSession({
     required this.onStatus,
     this.onRemoteEnded,
+    this.onMicrophoneState,
   });
 
   final void Function(String status) onStatus;
   final void Function()? onRemoteEnded;
+  final void Function(bool active, String? error)? onMicrophoneState;
 
   static const Map<String, dynamic> _iceConfig = {
     'iceServers': [
@@ -28,6 +30,8 @@ class HomeCamWebRtcSession {
 
   RTCPeerConnection? _peer;
   MediaStream? _cameraStream;
+  MediaStream? _microphoneStream;
+  RTCRtpSender? _audioSender;
   RTCVideoRenderer? _remoteRenderer;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _sessionSub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _candidatesSub;
@@ -42,6 +46,9 @@ class HomeCamWebRtcSession {
   bool _remoteDescriptionSet = false;
   bool _answerInProgress = false;
   bool _closing = false;
+  bool _audioNegotiated = false;
+  bool? _desiredMicrophone;
+  Future<void> _microphoneQueue = Future<void>.value();
 
   RTCVideoRenderer? get renderer => _remoteRenderer;
   bool get isRunning => _sessionId != null;
@@ -49,6 +56,98 @@ class HomeCamWebRtcSession {
 
   DocumentReference<Map<String, dynamic>> _session(String id) =>
       RemoteControl.instance.session(id);
+
+  /// Explicit station-side action that requests system permission, then
+  /// releases capture immediately. No background microphone capture.
+  static Future<void> prepareMicrophonePermission() async {
+    final stream = await navigator.mediaDevices.getUserMedia({
+      'audio': true,
+      'video': false,
+    });
+    try {
+      for (final track in stream.getTracks()) {
+        await track.stop();
+      }
+    } finally {
+      await stream.dispose();
+    }
+  }
+
+  /// Viewer requests station audio. Capture starts only after station consent
+  /// and remains released while micRequested is false.
+  Future<void> requestMicrophone(bool enabled) async {
+    final id = _sessionId;
+    if (!_viewer || _closing || id == null) {
+      throw StateError('실시간 연결을 먼저 시작해 주세요');
+    }
+    await _session(id).set({
+      'micRequested': enabled,
+    }, SetOptions(merge: true));
+  }
+
+  void _queueMicrophoneChange(bool enabled) {
+    _microphoneQueue = _microphoneQueue.then((_) => _applyMicrophone(enabled))
+        .catchError((Object error) {
+      if (!_closing) onStatus('마이크 전환 오류: $error');
+    });
+  }
+
+  Future<void> _applyMicrophone(bool enabled) async {
+    final id = _sessionId;
+    if (_closing || _viewer || id == null || !_audioNegotiated) return;
+    final doc = _session(id);
+    try {
+      if (enabled && _microphoneStream == null) {
+        final sender = _audioSender;
+        if (sender == null) throw StateError('오디오 송출 채널 준비 실패');
+        final stream = await navigator.mediaDevices.getUserMedia({
+          'audio': {'echoCancellation': true, 'noiseSuppression': true},
+          'video': false,
+        });
+        // A session may be stopped while the OS permission prompt is visible.
+        if (_closing || _sessionId != id || _desiredMicrophone != true) {
+          for (final track in stream.getTracks()) {
+            await track.stop();
+          }
+          await stream.dispose();
+          return;
+        }
+        try {
+          await sender.replaceTrack(stream.getAudioTracks().first);
+          _microphoneStream = stream;
+        } catch (_) {
+          for (final track in stream.getTracks()) {
+            await track.stop();
+          }
+          await stream.dispose();
+          rethrow;
+        }
+      } else if (!enabled) {
+        await _audioSender?.replaceTrack(null);
+        final stream = _microphoneStream;
+        _microphoneStream = null;
+        if (stream != null) {
+          for (final track in stream.getTracks()) {
+            await track.stop();
+          }
+          await stream.dispose();
+        }
+      }
+      if (_closing || _sessionId != id) return;
+      await doc.set({
+        'micActive': enabled,
+        'micError': FieldValue.delete(),
+      }, SetOptions(merge: true));
+      onMicrophoneState?.call(enabled, null);
+    } catch (error) {
+      if (_closing || _sessionId != id) return;
+      await doc.set({
+        'micActive': false,
+        'micError': '거치폰 마이크 권한 또는 오디오 채널 오류: $error',
+      }, SetOptions(merge: true));
+      onMicrophoneState?.call(false, '$error');
+    }
+  }
 
   Future<void> _newPeer() async {
     _peer = await createPeerConnection(_iceConfig);
@@ -126,12 +225,21 @@ class HomeCamWebRtcSession {
       await _newPeer();
 
       _peer!.onTrack = (event) {
-        if (_closing || event.streams.isEmpty) return;
-        _remoteRenderer?.srcObject = event.streams.first;
-        onStatus('영상 트랙 수신 완료');
+        if (_closing) return;
+        if (event.track.kind == 'video' && event.streams.isNotEmpty) {
+          _remoteRenderer?.srcObject = event.streams.first;
+          onStatus('영상 트랙 수신 완료');
+        }
       };
+      _remoteRenderer?.muted = false;
       await _peer!.addTransceiver(
         kind: RTCRtpMediaType.RTCRtpMediaTypeVideo,
+        init: RTCRtpTransceiverInit(
+          direction: TransceiverDirection.RecvOnly,
+        ),
+      );
+      await _peer!.addTransceiver(
+        kind: RTCRtpMediaType.RTCRtpMediaTypeAudio,
         init: RTCRtpTransceiverInit(
           direction: TransceiverDirection.RecvOnly,
         ),
@@ -141,6 +249,8 @@ class HomeCamWebRtcSession {
         'state': 'creating_offer',
         'createdAt': FieldValue.serverTimestamp(),
         'viewerHeartbeatAt': FieldValue.serverTimestamp(),
+        'micRequested': false,
+        'micActive': false,
       });
       _watchCandidates(id, 'stationCandidates');
       _sessionSub = doc.snapshots().listen((snapshot) async {
@@ -148,6 +258,8 @@ class HomeCamWebRtcSession {
         final data = snapshot.data();
         if (data == null) return;
 
+        onMicrophoneState?.call(data['micActive'] == true,
+            data['micError'] as String?);
         if (data['state'] == 'ended') {
           onStatus('거치폰에서 연결을 종료했습니다');
           onRemoteEnded?.call();
@@ -236,6 +348,13 @@ class HomeCamWebRtcSession {
       _sessionSub = doc.snapshots().listen((snapshot) {
         if (_closing || _sessionId != id) return;
         final data = snapshot.data();
+        if (data != null) {
+          final desired = data['micRequested'] == true;
+          if (_desiredMicrophone != desired) {
+            _desiredMicrophone = desired;
+            if (_audioNegotiated) _queueMicrophoneChange(desired);
+          }
+        }
         final heartbeat = data?['viewerHeartbeatAt'];
         if (heartbeat is Timestamp) {
           final time = heartbeat.toDate().millisecondsSinceEpoch;
@@ -260,6 +379,18 @@ class HomeCamWebRtcSession {
       );
       await _readyForRemoteIce();
 
+      // The offer includes a receive-only audio m-line. Mark the matching
+      // answer-side transceiver send-only even though no mic track exists yet.
+      // A later replaceTrack can start/stop capture without renegotiation.
+      final transceivers = await _peer!.getTransceivers();
+      for (final transceiver in transceivers) {
+        if (transceiver.receiver.track?.kind == 'audio') {
+          await transceiver.setDirection(TransceiverDirection.SendOnly);
+          _audioSender = transceiver.sender;
+          break;
+        }
+      }
+
       _cameraStream = await navigator.mediaDevices.getUserMedia({
         'audio': false,
         'video': {
@@ -272,6 +403,8 @@ class HomeCamWebRtcSession {
       for (final track in _cameraStream!.getVideoTracks()) {
         await _peer!.addTrack(track, _cameraStream!);
       }
+      // Associate future audio with the same video stream on the remote side.
+      await _audioSender?.setStreams([_cameraStream!]);
 
       final answer = await _peer!.createAnswer();
       await _peer!.setLocalDescription(answer);
@@ -279,6 +412,8 @@ class HomeCamWebRtcSession {
         'answer': {'sdp': answer.sdp, 'type': answer.type},
         'state': 'answer_ready',
       });
+      _audioNegotiated = true;
+      if (_desiredMicrophone == true) _queueMicrophoneChange(true);
       onStatus('후면 카메라 송출 중 · 마이크 OFF');
     } catch (_) {
       await end();
@@ -306,6 +441,22 @@ class HomeCamWebRtcSession {
     _lastHeartbeatVersion = null;
     _remoteDescriptionSet = false;
     _answerInProgress = false;
+    _audioNegotiated = false;
+    _desiredMicrophone = null;
+
+    // Shut down the audio sender before disposal, regardless of signaling.
+    try {
+      await _audioSender?.replaceTrack(null);
+    } catch (_) {}
+    _audioSender = null;
+    final microphone = _microphoneStream;
+    _microphoneStream = null;
+    if (microphone != null) {
+      for (final track in microphone.getTracks()) {
+        await track.stop();
+      }
+      await microphone.dispose();
+    }
 
     final stream = _cameraStream;
     _cameraStream = null;
@@ -332,6 +483,8 @@ class HomeCamWebRtcSession {
 
     if (notifyRemote && id != null) {
       await _session(id).set({
+        'micRequested': false,
+        'micActive': false,
         'state': 'ended',
         'endedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
