@@ -179,9 +179,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
       await RemoteControl.instance.signIn(
         email.text.trim(), password.text, register: true,
       );
-      if (mounted) Navigator.of(context).pushNamedAndRemoveUntil(
-        '/roles', (_) => false,
-      );
+      if (mounted) {
+        Navigator.of(context).pushNamedAndRemoveUntil(
+          '/roles', (_) => false,
+        );
+      }
     } on FirebaseAuthException catch (e) {
       if (mounted) setState(() => error = e.message ?? '계정을 만들 수 없어요.');
     } catch (e) {
@@ -274,8 +276,10 @@ class _PasswordResetScreenState extends State<PasswordResetScreen> {
     setState(() { busy = true; message = null; });
     try {
       await FirebaseAuth.instance.sendPasswordResetEmail(email: email.text.trim());
-      if (mounted) setState(() => message =
-          '메일이 발송 가능한 계정이라면 재설정 링크가 전달됩니다. 메일함을 확인해 주세요.');
+      if (mounted) {
+        setState(() => message =
+            '메일이 발송 가능한 계정이라면 재설정 링크가 전달됩니다. 메일함을 확인해 주세요.');
+      }
     } on FirebaseAuthException catch (e) {
       if (mounted) setState(() => message = e.message ?? '메일 발송에 실패했어요.');
     } catch (e) {
