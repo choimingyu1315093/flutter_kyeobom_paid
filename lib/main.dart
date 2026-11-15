@@ -16,6 +16,7 @@ import 'viewer_video_controls.dart';
 import 'kyeobom_design.dart';
 import 'kyeobom_screens.dart';
 import 'kyeobom_viewer_ads.dart';
+import 'kyeobom_fullscreen_ads.dart';
 import 'kyeobom_auth_screens.dart';
 import 'kyeobom_station_start_dialog.dart';
 import 'homecam_session_housekeeping.dart';
@@ -459,6 +460,7 @@ class _ViewerScreenState extends State<ViewerScreen>
   bool _watching = false;
   bool _leaving = false;
   bool _landscapeLocked = false;
+  DateTime? _viewStartedAt;
 
   @override
   void initState() {
@@ -546,12 +548,14 @@ class _ViewerScreenState extends State<ViewerScreen>
       _status = '거치폰 연결 요청 중';
     });
 
+    KyeobomFullscreenAds.instance.beginLive();
     try {
       await _rtc.startViewer();
       if (!mounted || _leaving) {
         await _rtc.end();
         return;
       }
+      _viewStartedAt = DateTime.now();
       setState(() => _watching = true);
       // Audio listens independently; it must never break the video session.
       try {
@@ -568,6 +572,7 @@ class _ViewerScreenState extends State<ViewerScreen>
         }
       }
     } catch (error) {
+      KyeobomFullscreenAds.instance.leaveViewer();
       if (mounted) setState(() => _status = '영상 연결 오류: $error');
       await _restoreOrientation();
     } finally {
@@ -575,9 +580,16 @@ class _ViewerScreenState extends State<ViewerScreen>
     }
   }
 
-  Future<void> _stop({bool notifyRemote = true}) async {
+  Future<void> _stop({
+    bool notifyRemote = true,
+    bool userPressedStop = false,
+  }) async {
     if (_busy || _leaving) return;
     final id = _rtc.sessionId;
+    final viewingFor = DateTime.now().difference(
+      _viewStartedAt ?? DateTime.now(),
+    );
+    _viewStartedAt = null;
     setState(() {
       _busy = true;
       _watching = false;
@@ -600,12 +612,25 @@ class _ViewerScreenState extends State<ViewerScreen>
       } catch (error) {
         if (mounted) setState(() => _status = '화면 방향 복구 오류: $error');
       }
-      if (mounted) setState(() => _busy = false);
+      if (mounted) {
+        setState(() => _busy = false);
+        // Schedule after the portrait dashboard frame: do not block video
+        // release, do not show over camera, and never monetize app exit.
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && !_leaving && !_watching) {
+            unawaited(KyeobomFullscreenAds.instance.completedLiveView(
+              viewedFor: viewingFor,
+              explicitStop: userPressedStop,
+            ));
+          }
+        });
+      }
     }
   }
 
   Future<void> _leave() async {
     if (_leaving) return;
+    KyeobomFullscreenAds.instance.leaveViewer();
     setState(() => _leaving = true);
     final id = _rtc.sessionId;
 
@@ -631,6 +656,11 @@ class _ViewerScreenState extends State<ViewerScreen>
     final background = state == AppLifecycleState.paused ||
         state == AppLifecycleState.hidden ||
         state == AppLifecycleState.detached;
+    if (background) {
+      KyeobomFullscreenAds.instance.appBackgrounded();
+    } else if (state == AppLifecycleState.resumed && !_watching && !_busy) {
+      unawaited(KyeobomFullscreenAds.instance.appForegrounded());
+    }
     if (background && !_leaving && _watching && !_busy) {
       unawaited(_stop());
     }
@@ -639,6 +669,7 @@ class _ViewerScreenState extends State<ViewerScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    KyeobomFullscreenAds.instance.leaveViewer();
     _orientationTimer?.cancel();
     unawaited(_viewerAudio.detach());
     unawaited(_rtc.end());
@@ -698,7 +729,7 @@ class _ViewerScreenState extends State<ViewerScreen>
         remoteAudioMessage: _remoteAudioMessage,
         onBack: () => unawaited(_leave()),
         onStart: () => unawaited(_start()),
-        onStop: () => unawaited(_stop()),
+        onStop: () => unawaited(_stop(userPressedStop: true)),
       ),
     );
   }
