@@ -15,6 +15,9 @@ class KyeobomStationView extends StatelessWidget {
     required this.onLeave,
     required this.onToggleMicrophone,
     this.microphoneMessage,
+    this.autoMicrophoneEnabled = false,
+    this.autoMicrophoneBusy = false,
+    this.onAutoMicrophoneChanged,
   });
 
   final String status;
@@ -25,6 +28,9 @@ class KyeobomStationView extends StatelessWidget {
   final String? microphoneMessage;
   final VoidCallback onLeave;
   final VoidCallback onToggleMicrophone;
+  final bool autoMicrophoneEnabled;
+  final bool autoMicrophoneBusy;
+  final ValueChanged<bool>? onAutoMicrophoneChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -154,7 +160,7 @@ class KyeobomStationView extends StatelessWidget {
                           label: Text(
                             microphoneBusy
                                 ? '마이크 전환 중'
-                                : microphoneOn ? '마이크 끄기' : '마이크 켜기',
+                                : microphoneOn ? '거치폰 마이크 끄기' : '거치폰 마이크 켜기',
                           ),
                         ),
                         if (microphoneMessage != null) ...[
@@ -173,6 +179,28 @@ class KyeobomStationView extends StatelessWidget {
                   ),
                 ),
               ),
+              if (!streaming) ...[
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  activeTrackColor: KyeobomPalette.teal,
+                  title: const Text(
+                    '실시간 보기 시 거치폰 마이크 자동 켜기',
+                    style: TextStyle(color: Colors.white70, fontSize: 13),
+                  ),
+                  subtitle: const Text(
+                    '거치폰 주변 소리만 전송 · 대기 중에는 OFF',
+                    style: TextStyle(color: Colors.white38, fontSize: 11),
+                  ),
+                  value: autoMicrophoneEnabled,
+                  onChanged: leaving || autoMicrophoneBusy
+                      ? null : onAutoMicrophoneChanged,
+                ),
+                if (microphoneMessage != null)
+                  Text(microphoneMessage!,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.white60, fontSize: 11)),
+              ],
               TextButton(
                 onPressed: leaving ? null : onLeave,
                 style: TextButton.styleFrom(
@@ -222,12 +250,17 @@ class KyeobomViewerView extends StatelessWidget {
     if (landscape) {
       return Scaffold(
         backgroundColor: Colors.black,
-        body: SafeArea(
-          child: Stack(
-            children: [
-              Positioned.fill(child: video),
-              Positioned(
-                top: 8,
+        // The video must be full-bleed in landscape; only controls belong
+        // inside the safe area, to preserve the immersive viewer.
+        body: Stack(
+          children: [
+            Positioned.fill(child: video),
+            Positioned.fill(
+              child: SafeArea(
+                child: Stack(
+                  children: [
+                    Positioned(
+                      top: 8,
                 left: 12,
                 child: IconButton.filledTonal(
                   tooltip: '뒤로',
@@ -274,8 +307,11 @@ class KyeobomViewerView extends StatelessWidget {
                   ),
                 ),
               ),
-            ],
-          ),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ),
       );
     }
