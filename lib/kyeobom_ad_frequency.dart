@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Pure rules, shared across app-open and interstitial formats.
@@ -13,6 +14,17 @@ abstract final class KyeobomAdFrequency {
   static const minAppOpenViews = 5;
   static const rewardDuration = Duration(hours: 12);
 
+  /// Shortens thresholds for REAL-device ad QA only. Never active in release.
+  static const _qaFastOption =
+      bool.fromEnvironment('KYEOBOM_AD_QA_FAST', defaultValue: false);
+  static bool get qaFast => kDebugMode && _qaFastOption;
+  static int get requiredInterstitialViews =>
+      qaFast ? 1 : minInterstitialViews;
+  static int get requiredAppOpenViews =>
+      qaFast ? 1 : minAppOpenViews;
+  static Duration get requiredBackgroundBeforeAppOpen =>
+      qaFast ? const Duration(seconds: 15) : minAppOpenBackground;
+
   static bool canInterstitial({
     required bool viewerHome,
     required bool userStoppedVideo,
@@ -26,7 +38,7 @@ abstract final class KyeobomAdFrequency {
       viewerHome &&
       userStoppedVideo &&
       appForeground &&
-      completedViews >= minInterstitialViews &&
+      completedViews >= requiredInterstitialViews &&
       viewedFor >= minViewDuration &&
       fullscreenToday < maxFullscreenPerDay &&
       (lastFullscreenAt == null ||
@@ -45,8 +57,8 @@ abstract final class KyeobomAdFrequency {
       viewerHome &&
       warmReturn &&
       appForeground &&
-      completedViews >= minAppOpenViews &&
-      backgroundFor >= minAppOpenBackground &&
+      completedViews >= requiredAppOpenViews &&
+      backgroundFor >= requiredBackgroundBeforeAppOpen &&
       fullscreenToday < maxFullscreenPerDay &&
       (lastFullscreenAt == null ||
           now.difference(lastFullscreenAt) >= minBetweenAppOpens);
