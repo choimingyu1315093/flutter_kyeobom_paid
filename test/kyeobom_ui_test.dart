@@ -47,6 +47,29 @@ void main() {
     expect(toggles, 1);
   });
 
+  testWidgets('station waiting view retains opt-in automatic microphone', (tester) async {
+    var enabled = false;
+    await tester.pumpWidget(MaterialApp(
+      theme: KyeobomTheme.light,
+      home: KyeobomStationView(
+        status: '연결 대기 중',
+        streaming: false,
+        microphoneOn: false,
+        microphoneBusy: false,
+        leaving: false,
+        autoMicrophoneEnabled: false,
+        onAutoMicrophoneChanged: (value) => enabled = value,
+        onLeave: () {},
+        onToggleMicrophone: () {},
+      ),
+    ));
+    expect(find.text('실시간 보기 시 거치폰 마이크 자동 켜기'), findsOneWidget);
+    expect(find.textContaining('대기 중에는 OFF'), findsOneWidget);
+    await tester.tap(find.byType(Switch));
+    await tester.pump();
+    expect(enabled, true);
+  });
+
   testWidgets('viewer starts live mode from a single primary action',
       (tester) async {
     var starts = 0;
