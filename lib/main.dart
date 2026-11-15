@@ -554,17 +554,16 @@ class _ViewerScreenState extends State<ViewerScreen>
               builder: (context, _) {
                 final landscape = MediaQuery.orientationOf(context) ==
                     Orientation.landscape;
-                final quarterTurns = videoQuarterTurns(
-                  viewerLandscape: landscape,
-                  videoWidth: renderer.videoWidth,
-                  videoHeight: renderer.videoHeight,
-                );
+                final quarterTurns =
+                    videoQuarterTurns(viewerLandscape: landscape);
                 return ViewerVideoControls(
                   video: RotatedBox(
                     quarterTurns: quarterTurns,
                     child: RTCVideoView(
                       renderer,
-                      objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitContain,
+                      // Cover the entire rotated viewport; contain caused
+                      // the narrow upright strip with huge black side bars.
+                      objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
                     ),
                   ),
                 );
