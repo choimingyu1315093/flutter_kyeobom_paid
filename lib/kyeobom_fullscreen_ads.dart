@@ -73,11 +73,11 @@ class KyeobomFullscreenAds {
     if (!_viewerHome || _live || !_consentAllowed) return;
 
     if (_enabled(KyeobomAdFormat.interstitial) &&
-        viewed >= KyeobomAdFrequency.minInterstitialViews - 1) {
+        viewed >= KyeobomAdFrequency.requiredInterstitialViews - 1) {
       _loadInterstitial();
     }
     if (_enabled(KyeobomAdFormat.appOpen) &&
-        viewed >= KyeobomAdFrequency.minAppOpenViews - 1) {
+        viewed >= KyeobomAdFrequency.requiredAppOpenViews - 1) {
       _loadAppOpen();
     }
     if (_enabled(KyeobomAdFormat.rewarded) && !hideHomeAds.value) {
@@ -165,7 +165,7 @@ class KyeobomFullscreenAds {
           now: now,
           lastFullscreenAt: history.last,
         )) {
-      if (views >= KyeobomAdFrequency.minInterstitialViews - 1) {
+      if (views >= KyeobomAdFrequency.requiredInterstitialViews - 1) {
         _loadInterstitial();
       }
       return;
