@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 import 'remote_control.dart';
+import 'audio_quality.dart';
 
 /// A separate, audio-only WebRTC peer connection.
 ///
@@ -111,10 +112,9 @@ class StationMicrophone {
 
       // A permission prompt may suspend the foreground app temporarily.
       // The user must approve microphone use on the station itself.
-      final stream = await navigator.mediaDevices.getUserMedia({
-        'audio': true,
-        'video': false,
-      });
+      final stream = await navigator.mediaDevices.getUserMedia(
+        stationRoomAudioConstraints(),
+      );
       _stream = stream;
       if (_stopping) return;
 
@@ -154,10 +154,23 @@ class StationMicrophone {
       });
 
       final offer = await peer.createOffer();
-      await peer.setLocalDescription(offer);
+      // Only the microphone-only peer gets quality tuning. The proven
+      // camera/video peer uses its original SDP and is never altered.
+      var outgoing = RTCSessionDescription(
+        tuneMonitoringOpus(offer.sdp),
+        offer.type,
+      );
+      try {
+        await peer.setLocalDescription(outgoing);
+      } catch (_) {
+        // Some native WebRTC builds reject custom fmtp parameters: retain
+        // working microphone behavior rather than failing the session.
+        outgoing = offer;
+        await peer.setLocalDescription(offer);
+      }
       if (_stopping) return;
       await doc.update({
-        'audioOffer': {'type': offer.type, 'sdp': offer.sdp},
+        'audioOffer': {'type': outgoing.type, 'sdp': outgoing.sdp},
         'audioEnabled': true,
         'audioState': 'offered',
       });
