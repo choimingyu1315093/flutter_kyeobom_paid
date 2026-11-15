@@ -17,11 +17,15 @@ import 'kyeobom_design.dart';
 import 'kyeobom_screens.dart';
 import 'kyeobom_auth_screens.dart';
 import 'kyeobom_station_start_dialog.dart';
+import 'homecam_session_housekeeping.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   try {
     await RemoteControl.instance.initialize();
+    // Non-blocking: at most one small free-tier cleanup per device/day.
+    // Never touch ongoing WebRTC sessions or delay showing the UI.
+    unawaited(HomeCamSessionHousekeeping.runIfDue());
   } catch (_) {
     // A clear setup prompt is shown below when Firebase is unavailable.
   }
