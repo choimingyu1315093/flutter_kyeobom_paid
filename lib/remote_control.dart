@@ -52,7 +52,7 @@ class RemoteControl {
   Future<void> requestStop(String id) => station.set({
         'command': 'stop',
         'sessionId': id,
-        'commandId': 'stop-' + DateTime.now().microsecondsSinceEpoch.toString(),
+        'commandId': 'stop-${DateTime.now().microsecondsSinceEpoch}',
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
 
