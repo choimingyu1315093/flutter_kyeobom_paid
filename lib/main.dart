@@ -16,6 +16,7 @@ import 'viewer_video_controls.dart';
 import 'kyeobom_design.dart';
 import 'kyeobom_screens.dart';
 import 'kyeobom_auth_screens.dart';
+import 'kyeobom_station_start_dialog.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -52,26 +53,7 @@ class RoleSelectionScreen extends StatelessWidget {
   const RoleSelectionScreen({super.key});
 
   Future<void> _openStation(BuildContext context) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('홈캠 대기 모드가 시작됩니다.'),
-        content: const Text(
-          '화면은 어둡게 유지되며 자동으로 잠기지 않습니다.\n\n'
-          '안정적인 원격 연결을 위해 충전기를 연결하고 앱을 실행 상태로 유지해 주세요.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('취소'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('대기 시작'),
-          ),
-        ],
-      ),
-    );
+    final confirmed = await showKyeobomStationStartDialog(context);
     if (confirmed != true || !context.mounted) return;
     await Navigator.of(context).push(
       MaterialPageRoute<void>(builder: (_) => const StationScreen()),
