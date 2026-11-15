@@ -16,7 +16,8 @@ void main() {
     expect(find.text('가로 보기'), findsNothing);
     expect(find.text('자동 회전'), findsNothing);
     expect(find.byTooltip('영상 90도 회전'), findsNothing);
-    expect(find.textContaining('마이크 ON/OFF는 거치폰에서 조작'),
+    // The viewer is playback only; only the station captures sound.
+    expect(find.textContaining('소리는 거치폰 마이크로만 수집'),
         findsOneWidget);
   });
 }
