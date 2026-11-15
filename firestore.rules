@@ -2,7 +2,23 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     match /homecamStations/{uid} {
-      allow read, write: if request.auth != null && request.auth.uid == uid;
+      function isOwner() {
+        return request.auth != null && request.auth.uid == uid;
+      }
+
+      allow read, write: if isOwner();
+
+      // Video never traverses Firestore: only SDP and ICE candidates.
+      match /sessions/{sessionId} {
+        allow read, write: if isOwner();
+
+        match /viewerCandidates/{candidateId} {
+          allow read, write: if isOwner();
+        }
+        match /stationCandidates/{candidateId} {
+          allow read, write: if isOwner();
+        }
+      }
     }
   }
 }
