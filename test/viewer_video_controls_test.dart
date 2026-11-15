@@ -45,8 +45,8 @@ void main() {
   testWidgets('zoom clamp disables minus at 1x and plus at 4x',
       (tester) async {
     await pumpPreview(tester);
-    final minus = find.byTooltip('축소');
-    final plus = find.byTooltip('확대');
+    final minus = find.widgetWithIcon(IconButton, Icons.remove);
+    final plus = find.widgetWithIcon(IconButton, Icons.add);
 
     expect(tester.widget<IconButton>(minus).onPressed, isNull);
     for (var i = 0; i < 5; i++) {
