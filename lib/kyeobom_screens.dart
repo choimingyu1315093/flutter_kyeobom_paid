@@ -153,6 +153,23 @@ class KyeobomViewerView extends StatelessWidget {
       landscape ? _landscape(context) : _dashboard(context);
 
   Widget _dashboard(BuildContext context) => Scaffold(
+    // Anchor the single ad slot below (NOT on top of) the scrollable home.
+    // Users see it without scrolling; the "실시간 보기" button remains free.
+    bottomNavigationBar: (!watching && !busy && !leaving)
+        ? SafeArea(
+            top: false,
+            child: Center(
+              heightFactor: 1,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 500),
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 20),
+                  child: KyeobomViewerHomeAd(),
+                ),
+              ),
+            ),
+          )
+        : null,
     appBar: AppBar(
       leading: IconButton(
         onPressed: busy || leaving ? null : onBack,
@@ -270,10 +287,6 @@ class KyeobomViewerView extends StatelessWidget {
           const SizedBox(height: 15),
           const Center(child: Text('실시간 보기를 시작하면 가로 화면으로 전환됩니다.',
             style: TextStyle(color: KyeobomPalette.muted, fontSize: 11))),
-          // Revenue exists only on the viewer dashboard. The moment the user
-          // starts connecting or watching, the ad view is disposed.
-          if (!watching && !busy && !leaving)
-            const KyeobomViewerHomeAd(),
         ]),
       ),
     ))),
