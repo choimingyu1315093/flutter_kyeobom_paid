@@ -21,11 +21,11 @@ void main() {
     );
   }
 
-  testWidgets('zoom controls clamp to 1x and reset to default', (tester) async {
+  testWidgets('viewer retains 1x to 4x zoom and reset', (tester) async {
     await pumpPreview(tester);
 
     expect(find.text('1.0x'), findsOneWidget);
-    expect(find.text('0°'), findsOneWidget);
+    expect(find.byTooltip('영상 90도 회전'), findsNothing);
 
     await tester.tap(find.byTooltip('확대'));
     await tester.pump();
@@ -37,30 +37,24 @@ void main() {
 
     await tester.tap(find.byTooltip('확대'));
     await tester.pump();
-    await tester.tap(find.byTooltip('회전 및 확대 초기화'));
+    await tester.tap(find.byTooltip('확대 초기화'));
     await tester.pump();
     expect(find.text('1.0x'), findsOneWidget);
-    expect(find.text('0°'), findsOneWidget);
   });
 
-  testWidgets('rotate cycles 90 degrees and resets zoom', (tester) async {
+  testWidgets('zoom clamp disables minus at 1x and plus at 4x',
+      (tester) async {
     await pumpPreview(tester);
+    final minus = find.byTooltip('축소');
+    final plus = find.byTooltip('확대');
 
-    await tester.tap(find.byTooltip('확대'));
-    await tester.pump();
-    expect(find.text('1.5x'), findsOneWidget);
-
-    await tester.tap(find.byTooltip('영상 90도 회전'));
-    await tester.pump();
-    expect(find.text('90°'), findsOneWidget);
-    expect(find.text('1.0x'), findsOneWidget);
-
-    await tester.tap(find.byTooltip('영상 90도 회전'));
-    await tester.pump();
-    expect(find.text('180°'), findsOneWidget);
-
-    await tester.tap(find.byTooltip('회전 및 확대 초기화'));
-    await tester.pump();
-    expect(find.text('0°'), findsOneWidget);
+    expect(tester.widget<IconButton>(minus).onPressed, isNull);
+    for (var i = 0; i < 5; i++) {
+      await tester.tap(plus);
+      await tester.pump();
+    }
+    expect(find.text('4.0x'), findsOneWidget);
+    expect(tester.widget<IconButton>(plus).onPressed, isNull);
+    expect(tester.widget<IconButton>(minus).onPressed, isNotNull);
   });
 }
