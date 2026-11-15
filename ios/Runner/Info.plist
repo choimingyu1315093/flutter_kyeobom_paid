@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>현재 홈캠은 마이크를 사용하지 않습니다. 영상 통화 기능을 추가하는 경우 별도 동의를 받습니다.</string>
+	<string>거치폰의 마이크 켜기 버튼을 누른 경우에만 주변 소리를 연결된 뷰어폰으로 전송합니다. 기본값은 꺼짐이며 녹음하지 않습니다.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>같은 네트워크의 연결된 기기로 실시간 영상을 전송하기 위해 사용합니다.</string>
 	<key>NSCameraUsageDescription</key>
