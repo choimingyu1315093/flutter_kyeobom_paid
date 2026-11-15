@@ -49,4 +49,23 @@ void main() {
       nativeAssigned: true, override: 'banner',
     ), KyeobomAdFormat.banner);
   });
+  test('fullscreen ads remain opt-in and official QA IDs are provided', () {
+    expect(KyeobomAdPolicy.enableAppOpen, isFalse);
+    expect(KyeobomAdPolicy.enableInterstitial, isFalse);
+    expect(KyeobomAdPolicy.enableRewarded, isFalse);
+    for (final type in [
+      KyeobomAdFormat.appOpen,
+      KyeobomAdFormat.interstitial,
+      KyeobomAdFormat.rewarded,
+    ]) {
+      expect(KyeobomAdPolicy.formatEnabled(type), isFalse);
+      expect(KyeobomAdPolicy.unitId(
+        platform: TargetPlatform.android, format: type, release: false,
+      ), startsWith('ca-app-pub-3940256099942544/'));
+      expect(KyeobomAdPolicy.unitId(
+        platform: TargetPlatform.iOS, format: type, release: false,
+      ), startsWith('ca-app-pub-3940256099942544/'));
+    }
+  });
+
 }
