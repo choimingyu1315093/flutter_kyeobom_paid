@@ -134,7 +134,7 @@ class KyeobomFullscreenAds {
           fullscreenToday: usage.count,
           now: now,
           lastFullscreenAt: usage.last,
-        )) {
+        ) && await ConsentInformation.instance.canRequestAds()) {
       _showAppOpen();
     }
   }
@@ -173,7 +173,10 @@ class KyeobomFullscreenAds {
     if (_interstitial != null &&
         _interstitialLoadedAt != null &&
         now.difference(_interstitialLoadedAt!) < const Duration(hours: 1)) {
-      _showInterstitial();
+      if (await ConsentInformation.instance.canRequestAds() &&
+          _viewerHome && !_live && _foreground) {
+        _showInterstitial();
+      }
     } else {
       _discardInterstitial();
       _loadInterstitial(); // Never wait for an ad at a navigation boundary.
