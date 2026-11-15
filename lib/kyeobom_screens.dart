@@ -153,9 +153,10 @@ class KyeobomViewerView extends StatelessWidget {
       landscape ? _landscape(context) : _dashboard(context);
 
   Widget _dashboard(BuildContext context) => Scaffold(
-    // Anchor the single ad slot below (NOT on top of) the scrollable home.
-    // Users see it without scrolling; the "실시간 보기" button remains free.
-    bottomNavigationBar: (!watching && !busy && !leaving)
+    // Prefer a permanently visible ad on taller phones. On compact devices,
+    // keep the primary live-video button reachable and move the ad into scroll.
+    bottomNavigationBar: (MediaQuery.sizeOf(context).height >= 740 &&
+            !watching && !busy && !leaving)
         ? SafeArea(
             top: false,
             child: Center(
@@ -264,6 +265,9 @@ class KyeobomViewerView extends StatelessWidget {
                   fontSize: 11))),
             ]),
           ),
+          if (MediaQuery.sizeOf(context).height < 740 &&
+              !watching && !busy && !leaving)
+            const KyeobomViewerHomeAd(),
           const SizedBox(height: 14),
           Container(
             width: double.infinity,
