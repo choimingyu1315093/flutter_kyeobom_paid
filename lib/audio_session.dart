@@ -317,7 +317,9 @@ class ViewerAudio {
     try {
       final playback = RTCVideoRenderer();
       await playback.initialize();
-      playback.muted = false;
+      // Do not write RTCVideoRenderer.muted here: before srcObject exists it
+      // throws 'The MediaStream is null', and for remote audio it is unsupported.
+      // Remote audio starts playing when the received stream is attached.
       _playback = playback;
       final peer = await createPeerConnection(_audioIceConfig);
       _peer = peer;
