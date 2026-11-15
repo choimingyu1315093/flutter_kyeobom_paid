@@ -590,6 +590,7 @@ class _ViewerScreenState extends State<ViewerScreen>
       _viewStartedAt ?? DateTime.now(),
     );
     _viewStartedAt = null;
+    var transportStopped = false;
     setState(() {
       _busy = true;
       _watching = false;
@@ -598,6 +599,7 @@ class _ViewerScreenState extends State<ViewerScreen>
     try {
       await _viewerAudio.detach();
       await _rtc.end(notifyRemote: notifyRemote);
+      transportStopped = true;
       if (notifyRemote && id != null) {
         await RemoteControl.instance.requestStop(id);
       }
@@ -617,7 +619,8 @@ class _ViewerScreenState extends State<ViewerScreen>
         // Schedule after the portrait dashboard frame: do not block video
         // release, do not show over camera, and never monetize app exit.
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted && !_leaving && !_watching) {
+          if (mounted && transportStopped && !_rtc.isRunning &&
+              !_leaving && !_watching) {
             unawaited(KyeobomFullscreenAds.instance.completedLiveView(
               viewedFor: viewingFor,
               explicitStop: userPressedStop,
