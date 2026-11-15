@@ -14,7 +14,12 @@ void main() {
 
     expect(find.text('홈캠 대기 모드가 시작됩니다.'), findsOneWidget);
     expect(
-      find.textContaining('충전기를 연결하고 앱을 실행 상태로 유지해 주세요.'),
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.textContaining(
+          '충전기를 연결하고 앱을 실행 상태로 유지해 주세요.',
+        ),
+      ),
       findsOneWidget,
     );
     expect(find.text('대기 시작'), findsOneWidget);
