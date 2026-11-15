@@ -1,11 +1,13 @@
-/// The station video in the verified iPhone/Android pair arrives sideways.
+/// The incoming rear camera frame needs a quarter-turn for the full-screen
+/// viewer. On the opposite landscape side the rotation must reverse, or the
+/// scene appears upside down after the phone is physically rotated 180°.
 ///
-/// When the viewer enters landscape, rotate the actual received pixels by
-/// 90 degrees (not just the Flutter screen). The video surface uses cover
-/// fitting to fill the landscape viewport without large black side bars.
-///
-/// RTCVideoRenderer.videoWidth/videoHeight cannot determine which way the
-/// scene's floor and walls are oriented: relying on aspect ratio caused the
-/// screenshot's video to stay sideways and narrow.
-int videoQuarterTurns({required bool viewerLandscape}) =>
-    viewerLandscape ? 1 : 0;
+/// [landscapeRight] is determined by the native display/UI orientation,
+/// not by MediaQuery width/height (which are identical for both sides).
+int videoQuarterTurns({
+  required bool viewerLandscape,
+  bool landscapeRight = false,
+}) {
+  if (!viewerLandscape) return 0;
+  return landscapeRight ? 3 : 1;
+}
