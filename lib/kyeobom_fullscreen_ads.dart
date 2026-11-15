@@ -208,7 +208,7 @@ class KyeobomFullscreenAds {
       adLoadCallback: InterstitialAdLoadCallback(
         onAdLoaded: (ad) {
           _loadInterstitialInProgress = false;
-          if (!_consentAllowed) {
+          if (!_consentAllowed || !_viewerHome || _live || !_foreground) {
             unawaited(ad.dispose());
             return;
           }
@@ -279,7 +279,7 @@ class KyeobomFullscreenAds {
       adLoadCallback: AppOpenAdLoadCallback(
         onAdLoaded: (ad) {
           _loadAppOpenInProgress = false;
-          if (!_consentAllowed) {
+          if (!_consentAllowed || !_viewerHome || _live || !_foreground) {
             unawaited(ad.dispose());
             return;
           }
@@ -367,7 +367,8 @@ class KyeobomFullscreenAds {
       rewardedAdLoadCallback: RewardedAdLoadCallback(
         onAdLoaded: (ad) {
           _loadRewardedInProgress = false;
-          if (!_consentAllowed || hideHomeAds.value ||
+          if (!_consentAllowed || !_viewerHome || _live ||
+              !_foreground || hideHomeAds.value ||
               _rewardGrantedPending) {
             unawaited(ad.dispose());
             return;
