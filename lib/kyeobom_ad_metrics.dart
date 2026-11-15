@@ -32,11 +32,19 @@ abstract final class KyeobomAdMetrics {
     final rows = <String>[];
     for (final type in KyeobomAdFormat.values) {
       final values = <String>[];
-      for (final event in ['loaded', 'impression', 'clicked', 'paid', 'failed']) {
+      for (final event in [
+        'requested', 'loaded', 'impression', 'clicked', 'paid', 'failed',
+        'earned',
+      ]) {
         final count = await prefs.getInt('kyeobom_ads_v1_${type.name}_$event') ?? 0;
         values.add('$event=$count');
       }
-      rows.add('${type.name}: ${values.join(', ')}');
+      final usd = await prefs.getInt(
+          'kyeobom_ads_v1_${type.name}_paid_USD') ?? 0;
+      final krw = await prefs.getInt(
+          'kyeobom_ads_v1_${type.name}_paid_KRW') ?? 0;
+      rows.add('${type.name}: ${values.join(', ')}'
+          ' | USD micro=$usd, KRW micro=$krw');
     }
     return rows.join('\n');
   }
