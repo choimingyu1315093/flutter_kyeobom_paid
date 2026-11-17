@@ -83,6 +83,8 @@ bash tools/qa_smart_device_health.sh --ios
 7. 같은 배터리/발열 단계 유지 시 중복 알림이 발생하지 않는지 확인
 8. 거치폰을 **인위적으로 과열하지 말 것.** 저배터리·발열 이벤트 로직은 Node 단위 테스트로 검증하고, 실제 푸시 전달 경로는 안전한 Firebase Console 테스트 메시지로 먼저 확인
 9. 권한 거부 및 APNs 미연동 시 뷰어에 설정 안내가 표시되는지 확인
+   - **기기를 과열하지 않고 FCM 전달 테스트**: Firebase Console → Messaging에서 Viewer 문서의 `fcmToken`으로 테스트 전송할 때 추가 데이터에 `kind=health_alert`, `type=thermal_serious`, `uid=Firebase Auth UID` 지정. iPhone/Android 뷰어 앱이 전경이면 화면 상단 알림 배너로 확인. 백그라운드면 OS 알림 확인. 계정 UID나 FCM 토큰은 채팅에 공유하지 말 것.
+   - 이 테스트는 알림 전송/수신 경로 확인이며, **실제 센서 임계값→Firestore trigger** 검증은 Node 정책 테스트와 서버 Functions 로그로 별도 확인
 10. 현 서버 릴리스에서는 **기존 Firebase 서비스와 광고/영상에 영향이 없는지** 회귀 QA 완료 후에만 병합
 
 ## 제약
