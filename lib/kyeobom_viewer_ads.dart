@@ -384,10 +384,11 @@ class _KyeobomViewerHomeAdState extends State<KyeobomViewerHomeAd> {
     if (id == null || _banner != null || _loaded || !mounted ||
         _disposed || !_consentGranted) return;
     _format = KyeobomAdFormat.banner;
-    final available = (MediaQuery.sizeOf(context).width - 42).clamp(200, 460);
-    final size = await AdSize.getLargeAnchoredAdaptiveBannerAdSize(
-      available.toInt(),
-    ) ?? AdSize.banner;
+    // The home footer has a fixed, deliberately compact 320x50 ad slot.
+    // A "large anchored adaptive" request can reserve up to 150 logical
+    // pixels for a 50/60px creative, leaving distracting letterbox bars.
+    // Request an actual standard-size banner rather than cropping a large ad.
+    const size = AdSize.banner;
     if (!mounted || _disposed) return;
     final ad = BannerAd(
       adUnitId: id,
