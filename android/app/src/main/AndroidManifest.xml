@@ -9,11 +9,10 @@
         android:label="켜봄"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
-        <!-- Google official SAMPLE application ID for QA only.
-             Replace with your approved AdMob app ID before production. -->
+        <!-- Owner's Android AdMob APP ID (~). Debug ad requests still use Google's sample ad UNIT IDs. -->
         <meta-data
             android:name="com.google.android.gms.ads.APPLICATION_ID"
-            android:value="ca-app-pub-3940256099942544~3347511713" />
+            android:value="ca-app-pub-5893975529562336~4819053037" />
         <activity
             android:name=".MainActivity"
             android:exported="true"
