@@ -86,12 +86,12 @@ if flutter_options.exists():
     try:
         dart = flutter_options.read_text(encoding="utf-8")
         matches = dict(re.findall(
-            r"static const FirebaseOptions (android|ios)\\s*=\\s*FirebaseOptions\\((.*?)\\n\\s*\\);",
+            r"static const FirebaseOptions (android|ios)\s*=\s*FirebaseOptions\((.*?)\n\s*\);",
             dart, re.DOTALL,
         ))
         for platform in ("android", "ios"):
             block = matches.get(platform)
-            app_id_match = re.search(r"appId:\\s*['\\\"]([^'\\\"]+)['\\\"]", block or "")
+            app_id_match = re.search(r"appId:\s*['\\"]([^'\\"]+)['\\"]", block or "")
             dart_app_id = app_id_match.group(1) if app_id_match else None
             if platform == "android" and android_firebase.exists():
                 cfg = json.loads(android_firebase.read_text(encoding="utf-8"))
@@ -114,7 +114,7 @@ if flutter_options.exists():
                     f"(Dart={dart_app_id}, native={native_id})"
                 )
         ios_block = matches.get("ios") or ""
-        bundle_match = re.search(r"iosBundleId:\\s*['\\\"]([^'\\\"]+)['\\\"]", ios_block)
+        bundle_match = re.search(r"iosBundleId:\s*['\\"]([^'\\"]+)['\\"]", ios_block)
         if bundle_match and bundle_match.group(1) != EXPECTED:
             pending.append(
                 f"Flutter FirebaseOptions iosBundleId mismatch: {bundle_match.group(1)}"
