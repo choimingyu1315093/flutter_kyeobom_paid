@@ -170,6 +170,7 @@ class _StationScreenState extends State<StationScreen>
   static const _micAutoKey = 'station_auto_microphone_when_viewing_v1';
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _commands;
   DeviceHealthPublisher? _health;
+  String? _healthSyncError;
   Future<void> _commandQueue = Future<void>.value();
 
   String _status = '연결 대기 준비 중';
@@ -209,9 +210,17 @@ class _StationScreenState extends State<StationScreen>
     WidgetsBinding.instance.addObserver(this);
     unawaited(_enterWaiting());
     unawaited(_connectCommands());
-    _health = DeviceHealthPublisher(onThermalWarning: (warning) {
-      if (mounted && warning) setState(() => _status = '발열 높음 · 통풍 상태를 확인하세요');
-    });
+    _health = DeviceHealthPublisher(
+      onThermalWarning: (warning) {
+        if (mounted && warning) {
+          setState(() => _status = '발열 높음 · 통풍 상태를 확인하세요');
+        }
+      },
+      onSyncError: (code) {
+        if (!mounted || _healthSyncError == code) return;
+        setState(() => _healthSyncError = code);
+      },
+    );
     _health!.start();
   }
 
@@ -435,6 +444,7 @@ class _StationScreenState extends State<StationScreen>
           microphoneOn: _microphoneOn,
           microphoneBusy: _microphoneBusy,
           microphoneMessage: _microphoneMessage,
+          healthSyncError: _healthSyncError,
           autoMicrophoneEnabled: _micAutoEnabled,
           autoMicrophoneBusy: _micSettingsBusy,
           onAutoMicrophoneChanged: (enabled) =>
