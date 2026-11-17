@@ -19,24 +19,40 @@ class MainActivity : FlutterActivity() {
             .setMethodCallHandler { call, result ->
                 when (call.method) {
                     "getDeviceHealth" -> {
-                        val battery = getSystemService(Context.BATTERY_SERVICE) as BatteryManager
-                        val power = getSystemService(Context.POWER_SERVICE) as PowerManager
-                        val connectivity = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-                        val caps = connectivity.getNetworkCapabilities(connectivity.activeNetwork)
-                        val networkType = when {
-                            caps == null -> "offline"
-                            caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "wifi"
-                            caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "cellular"
-                            else -> "other"
+                        try {
+                            // Telemetry must not destabilize the home camera.
+                            // A device/OS may not expose every optional health API.
+                            val battery = getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
+                            val power = getSystemService(Context.POWER_SERVICE) as? PowerManager
+                            val connectivity = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+                            val network = connectivity?.activeNetwork
+                            val caps = network?.let { connectivity.getNetworkCapabilities(it) }
+                            val networkType = when {
+                                caps == null -> "offline"
+                                caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "wifi"
+                                caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "cellular"
+                                caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "ethernet"
+                                else -> "other"
+                            }
+                            val thermal = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                                power?.currentThermalStatus ?: -1
+                            } else {
+                                -1
+                            }
+                            result.success(mapOf(
+                                "battery" to (battery?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1),
+                                "charging" to (battery?.isCharging ?: false),
+                                "thermal" to thermal,
+                                "network" to networkType,
+                                "platform" to "android"
+                            ))
+                        } catch (exception: Exception) {
+                            // Native MethodChannel errors are returned to Dart,
+                            // where the publisher already catches and ignores
+                            // telemetry failures independently from WebRTC.
+                            android.util.Log.e("KyeobomHealth", "Health collection failed", exception)
+                            result.error("HEALTH_UNAVAILABLE", "Unable to read device health", null)
                         }
-                        val thermal = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) power.currentThermalStatus else -1
-                        result.success(mapOf(
-                            "battery" to battery.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY),
-                            "charging" to battery.isCharging,
-                            "thermal" to thermal,
-                            "network" to networkType,
-                            "platform" to "android"
-                        ))
                     }
                     "enableWaitingMode" -> {
                         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
