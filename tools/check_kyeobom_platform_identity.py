@@ -86,10 +86,28 @@ if (ROOT / "lib/firebase_options.dart").exists():
 else:
     pending.append("Firebase generated lib/firebase_options.dart missing")
 
-if (ROOT / "assets/branding/app_icon_real.png").exists():
-    print("OK  이전 앱 아이콘 원본 발견: assets/branding/app_icon_real.png")
+# The owner manually restored their installed launcher icons.
+# A separate master file is NOT required; inspect the actual platform assets
+# instead of falsely reporting missing assets/branding/app_icon_real.png.
+android_icons = list((ROOT / "android/app/src/main/res").glob("mipmap-*/ic_launcher.png"))
+ios_contents = ROOT / "ios/Runner/Assets.xcassets/AppIcon.appiconset/Contents.json"
+if len(android_icons) >= 5 and all(p.stat().st_size > 0 for p in android_icons):
+    print("OK  Android launcher icon images present")
 else:
-    pending.append("이전 아이콘 원본 누락: Mac에서 stash/백업 확인 필요")
+    pending.append("Android launcher icons missing or incomplete")
+if ios_contents.exists():
+    try:
+        ios_base = ios_contents.parent
+        definitions = json.loads(ios_contents.read_text(encoding="utf-8")).get("images", [])
+        referenced = [ios_base / v["filename"] for v in definitions if v.get("filename")]
+        if referenced and all(p.is_file() and p.stat().st_size > 0 for p in referenced):
+            print(f"OK  iOS AppIcon images present ({len(referenced)} PNGs)")
+        else:
+            pending.append("iOS AppIcon Contents.json references missing/empty PNG files")
+    except Exception as error:
+        pending.append(f"iOS AppIcon assets unreadable: {error}")
+else:
+    pending.append("iOS AppIcon Contents.json missing")
 
 if pending:
     print("\nFirebase/아이콘 후속 조치 (삭제하거나 자동 덮어쓰지 않음):")
