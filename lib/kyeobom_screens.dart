@@ -14,6 +14,7 @@ class KyeobomStationView extends StatelessWidget {
     required this.leaving, required this.onLeave,
     required this.onToggleMicrophone,
     this.microphoneMessage,
+    this.healthSyncError,
     this.autoMicrophoneEnabled = false,
     this.autoMicrophoneBusy = false,
     this.onAutoMicrophoneChanged,
@@ -22,6 +23,7 @@ class KyeobomStationView extends StatelessWidget {
   final String status;
   final bool streaming, microphoneOn, microphoneBusy, leaving;
   final String? microphoneMessage;
+  final String? healthSyncError;
   final VoidCallback onLeave, onToggleMicrophone;
   final bool autoMicrophoneEnabled, autoMicrophoneBusy;
   final ValueChanged<bool>? onAutoMicrophoneChanged;
@@ -120,6 +122,16 @@ class KyeobomStationView extends StatelessWidget {
           Text(microphoneMessage!,
             maxLines: 2, textAlign: TextAlign.center,
             style: const TextStyle(color: Colors.white38, fontSize: 11)),
+        ],
+        if (healthSyncError != null) ...[
+          const SizedBox(height: 8),
+          Text(
+            healthSyncError == 'permission-denied'
+                ? '상태 전송 차단됨 · Firestore 보안 규칙 확인 필요'
+                : '상태 전송 일시 오류 · 연결 상태를 확인해 주세요',
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: Color(0xFFFFBE8B), fontSize: 11),
+          ),
         ],
         TextButton(
           onPressed: leaving ? null : onLeave,
