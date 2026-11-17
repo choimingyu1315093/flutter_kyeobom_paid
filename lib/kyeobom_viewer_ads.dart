@@ -23,6 +23,27 @@ class KyeobomAdsRuntime extends InheritedWidget {
   bool updateShouldNotify(KyeobomAdsRuntime oldWidget) => false;
 }
 
+/// Layout boundary for the viewer's advertisement footer.
+///
+/// This must shrink-wrap its children: Scaffold.bottomNavigationBar otherwise
+/// takes up the full iPhone height and makes the viewer home/CTA invisible.
+/// Keep the boundary independent of the Google SDK for widget regression tests.
+class KyeobomAdFooterLayout extends StatelessWidget {
+  const KyeobomAdFooterLayout({super.key, required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.only(top: 12),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: children,
+        ),
+      );
+}
+
 /// Shown ONLY below the controls on the portrait viewer dashboard.
 /// It is not instantiated on the station or in the landscape/live view.
 /// No interstitials, rewarded gates, app-open ads or full-screen overlays.
@@ -481,15 +502,8 @@ class _KyeobomViewerHomeAdState extends State<KyeobomViewerHomeAd> {
         !KyeobomAdPolicy.enableRewarded) {
       return const SizedBox.shrink();
     }
-    return Padding(
-      padding: const EdgeInsets.only(top: 12),
-      child: Column(
-        // This widget is mounted as Scaffold.bottomNavigationBar on taller
-        // phones. MainAxisSize.max used to consume the whole viewport,
-        // hiding the home body and its "실시간 보기" button behind the ad.
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
+    return KyeobomAdFooterLayout(
+      children: [
           if (_rewardSuppressesHome)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 9),
@@ -574,8 +588,7 @@ class _KyeobomViewerHomeAdState extends State<KyeobomViewerHomeAd> {
                   style: const TextStyle(fontSize: 10)),
               ),
             ),
-        ],
-      ),
+      ],
     );
   }
 }
