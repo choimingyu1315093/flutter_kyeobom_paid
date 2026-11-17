@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Development / physical-device QA uses the APNs sandbox. Xcode's
+         provisioning profile must enable Push Notifications for the Runner
+         bundle identifier. Distribution signing uses production APNs. -->
+    <key>aps-environment</key>
+    <string>development</string>
+</dict>
+</plist>
