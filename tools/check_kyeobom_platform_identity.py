@@ -81,8 +81,46 @@ if ios_firebase.exists():
 else:
     pending.append("Firebase iOS GoogleService-Info.plist missing")
 
-if (ROOT / "lib/firebase_options.dart").exists():
-    print("검토  lib/firebase_options.dart: flutterfire configure 재실행 후 Firebase 앱 ID 일치 확인")
+flutter_options = ROOT / "lib/firebase_options.dart"
+if flutter_options.exists():
+    try:
+        dart = flutter_options.read_text(encoding="utf-8")
+        matches = dict(re.findall(
+            r"static const FirebaseOptions (android|ios)\\s*=\\s*FirebaseOptions\\((.*?)\\n\\s*\\);",
+            dart, re.DOTALL,
+        ))
+        for platform in ("android", "ios"):
+            block = matches.get(platform)
+            app_id_match = re.search(r"appId:\\s*['\\\"]([^'\\\"]+)['\\\"]", block or "")
+            dart_app_id = app_id_match.group(1) if app_id_match else None
+            if platform == "android" and android_firebase.exists():
+                cfg = json.loads(android_firebase.read_text(encoding="utf-8"))
+                clients = [
+                    client for client in cfg.get("client", [])
+                    if client.get("client_info", {}).get("android_client_info", {})
+                        .get("package_name") == EXPECTED
+                ]
+                native_id = clients[0]["client_info"].get("mobilesdk_app_id") if clients else None
+            elif platform == "ios" and ios_firebase.exists():
+                with ios_firebase.open("rb") as handle:
+                    native_id = plistlib.load(handle).get("GOOGLE_APP_ID")
+            else:
+                native_id = None
+            if dart_app_id and native_id and dart_app_id == native_id:
+                print(f"OK  Flutter FirebaseOptions {platform}: App ID match")
+            else:
+                pending.append(
+                    f"Flutter FirebaseOptions {platform}: App ID mismatch "
+                    f"(Dart={dart_app_id}, native={native_id})"
+                )
+        ios_block = matches.get("ios") or ""
+        bundle_match = re.search(r"iosBundleId:\\s*['\\\"]([^'\\\"]+)['\\\"]", ios_block)
+        if bundle_match and bundle_match.group(1) != EXPECTED:
+            pending.append(
+                f"Flutter FirebaseOptions iosBundleId mismatch: {bundle_match.group(1)}"
+            )
+    except Exception as error:
+        pending.append(f"Flutter firebase_options.dart read/parse error: {error}")
 else:
     pending.append("Firebase generated lib/firebase_options.dart missing")
 
