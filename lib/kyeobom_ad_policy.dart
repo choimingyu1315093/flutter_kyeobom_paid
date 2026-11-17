@@ -28,7 +28,8 @@ abstract final class KyeobomAdPolicy {
   /// Move the iOS native QA ad into a scrollable area rather than keeping it
   /// flush to the bottom edge, where the SDK's "See issues" popup is cut off.
   static bool get iosNativeQa =>
-      kDebugMode && enableIosNative && formatOverride == 'native';
+      kDebugMode && defaultTargetPlatform == TargetPlatform.iOS &&
+      enableIosNative && formatOverride == 'native';
 
   // Standard BannerAd is 320x50 dp; leave room for the page's
   // 20dp margins on both sides and the ad frame's 1dp borders.
