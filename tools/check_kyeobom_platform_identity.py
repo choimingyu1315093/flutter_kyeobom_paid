@@ -115,10 +115,9 @@ if pending:
         print(" - " + item)
 if failures:
     print("\n앱 식별자가 아직 모두 일치하지 않습니다.")
-    return 2
+    sys.exit(2)
 if pending:
     print("\n식별자 코드 확인 완료. 단 Firebase/아이콘 후속 작업 전까지 실기기 QA 완료로 간주하지 마세요.")
-    return 1
+    sys.exit(1)
 print("\n기본 식별자 및 로컬 Firebase 앱 설정 일치. 실제 로그인/스트리밍은 실기기로 검증하세요.")
-return_code = 0
-sys.exit(return_code)
+sys.exit(0)
