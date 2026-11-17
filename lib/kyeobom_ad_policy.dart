@@ -30,6 +30,11 @@ abstract final class KyeobomAdPolicy {
   static bool get iosNativeQa =>
       kDebugMode && enableIosNative && formatOverride == 'native';
 
+  static bool useStickyHomeAd({
+    required double screenHeight,
+    required bool iosNativeDiagnostic,
+  }) => screenHeight >= 740 && !iosNativeDiagnostic;
+
   static const bool enableLiveAds =
       bool.fromEnvironment('KYEOBOM_ENABLE_LIVE_ADS', defaultValue: false);
   // Separate experimental gates. Live-video entry NEVER requires an ad.
