@@ -1,12 +1,22 @@
 import Flutter
 import UIKit
+import Network
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
+  private let pathMonitor = NWPathMonitor()
+  private let pathQueue = DispatchQueue(label: "kyeobom.health.network")
+  private var networkType = "unknown"
+
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
+    pathMonitor.pathUpdateHandler = { [weak self] path in
+      let value = path.status != .satisfied ? "offline" : path.usesInterfaceType(.wifi) ? "wifi" : path.usesInterfaceType(.cellular) ? "cellular" : "other"
+      DispatchQueue.main.async { self?.networkType = value }
+    }
+    pathMonitor.start(queue: pathQueue)
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 
@@ -34,7 +44,7 @@ import UIKit
         case .critical: thermal = 3
         @unknown default: thermal = -1
         }
-        result(["battery": battery, "charging": charging, "thermal": thermal, "network": "unknown", "platform": "iOS"])
+        result(["battery": battery, "charging": charging, "thermal": thermal, "network": self.networkType, "platform": "iOS"])
       case "enableWaitingMode":
         UIApplication.shared.isIdleTimerDisabled = true
         result(nil)
