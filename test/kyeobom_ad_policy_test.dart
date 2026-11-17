@@ -35,6 +35,36 @@ void main() {
     ), isNull);
   });
 
+  test('iOS native stays isolated until explicit policy QA opt-in', () {
+    expect(KyeobomAdPolicy.nativeAllowed(TargetPlatform.android), isTrue);
+    expect(KyeobomAdPolicy.nativeAllowed(TargetPlatform.iOS),
+        kDebugMode && KyeobomAdPolicy.enableIosNative);
+    expect(KyeobomAdPolicy.enableIosNative, isFalse);
+    expect(KyeobomAdPolicy.qaAdsDisabled, isFalse);
+  });
+
+  test('standard 320x50 home banner does not overflow narrow viewports', () {
+    // Home uses 20dp outer padding on each side plus a 1dp card border.
+    expect(KyeobomAdPolicy.canFitHomeAd(320), isFalse);
+    expect(KyeobomAdPolicy.canFitHomeAd(360), isFalse);
+    expect(KyeobomAdPolicy.canFitHomeAd(362), isTrue);
+    expect(KyeobomAdPolicy.canFitHomeAd(375), isTrue);
+    expect(KyeobomAdPolicy.canFitHomeAd(390), isTrue);
+  });
+
+  test('iOS native QA uses scroll not sticky viewport footer', () {
+    expect(KyeobomAdPolicy.useStickyHomeAd(
+      screenHeight: 844, iosNativeDiagnostic: false,
+    ), isTrue);
+    expect(KyeobomAdPolicy.useStickyHomeAd(
+      screenHeight: 844, iosNativeDiagnostic: true,
+    ), isFalse);
+    expect(KyeobomAdPolicy.useStickyHomeAd(
+      screenHeight: 640, iosNativeDiagnostic: false,
+    ), isFalse);
+    expect(KyeobomAdPolicy.iosNativeQa, isFalse);
+  });
+
   test('A-B assignment respects banner/native QA override', () {
     expect(KyeobomAdPolicy.choose(
       nativeAssigned: true, override: 'auto',

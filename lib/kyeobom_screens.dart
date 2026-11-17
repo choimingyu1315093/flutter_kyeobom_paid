@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'kyeobom_design.dart';
+import 'kyeobom_ad_policy.dart';
 import 'kyeobom_viewer_ads.dart';
 import 'device_health.dart';
 import 'health_push_messaging.dart';
@@ -190,8 +191,12 @@ class KyeobomViewerView extends StatelessWidget {
   Widget _dashboard(BuildContext context) => Scaffold(
     // Prefer a permanently visible ad on taller phones. On compact devices,
     // keep the primary live-video button reachable and move the ad into scroll.
-    bottomNavigationBar: (MediaQuery.sizeOf(context).height >= 740 &&
-            !watching && !busy && !leaving)
+    // A native ad under iOS validator QA must be scrollable. Putting it in
+    // the sticky footer can put the SDK's "See issues" control off-screen.
+    bottomNavigationBar: (KyeobomAdPolicy.useStickyHomeAd(
+            screenHeight: MediaQuery.sizeOf(context).height,
+            iosNativeDiagnostic: KyeobomAdPolicy.iosNativeQa,
+          ) && !watching && !busy && !leaving)
         ? SafeArea(
             top: false,
             child: Center(
@@ -300,8 +305,10 @@ class KyeobomViewerView extends StatelessWidget {
                   fontSize: 11))),
             ]),
           ),
-          if (MediaQuery.sizeOf(context).height < 740 &&
-              !watching && !busy && !leaving)
+          if (!KyeobomAdPolicy.useStickyHomeAd(
+                screenHeight: MediaQuery.sizeOf(context).height,
+                iosNativeDiagnostic: KyeobomAdPolicy.iosNativeQa,
+              ) && !watching && !busy && !leaving)
             const KyeobomViewerHomeAd(),
           const SizedBox(height: 14),
           const DeviceHealthCard(),

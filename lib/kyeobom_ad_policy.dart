@@ -8,6 +8,42 @@ import 'package:shared_preferences/shared_preferences.dart';
 enum KyeobomAdFormat { native, banner, appOpen, interstitial, rewarded }
 
 abstract final class KyeobomAdPolicy {
+  /// Safe video/audio regression mode. Does NOT touch Firebase or WebRTC.
+  /// Only honored by debug builds; never disables release monetization.
+  static const bool _qaDisableAds =
+      bool.fromEnvironment('KYEOBOM_QA_DISABLE_ADS', defaultValue: false);
+
+  /// Native iOS needs a passing Native Ad Validator review before release.
+  /// Keep it available for an explicit test, not the automatic 50/50 mix.
+  static const bool enableIosNative =
+      bool.fromEnvironment('KYEOBOM_ENABLE_IOS_NATIVE_ADS', defaultValue: false);
+
+  static bool get qaAdsDisabled => kDebugMode && _qaDisableAds;
+
+  // iOS native layouts have not yet passed the owner's on-device validator.
+  // The opt-in is strictly a DEBUG diagnostic, never a release monetization gate.
+  static bool nativeAllowed(TargetPlatform platform) =>
+      platform != TargetPlatform.iOS || (kDebugMode && enableIosNative);
+
+  /// Move the iOS native QA ad into a scrollable area rather than keeping it
+  /// flush to the bottom edge, where the SDK's "See issues" popup is cut off.
+  static bool get iosNativeQa =>
+      kDebugMode && defaultTargetPlatform == TargetPlatform.iOS &&
+      enableIosNative && formatOverride == 'native';
+
+  // Standard BannerAd is 320x50 dp; leave room for the page's
+  // 20dp margins on both sides and the ad frame's 1dp borders.
+  // Small native templates also recommend at least 320dp content width.
+  static const double minHomeAdViewportWidth = 362;
+
+  static bool canFitHomeAd(double viewportWidth) =>
+      viewportWidth >= minHomeAdViewportWidth;
+
+  static bool useStickyHomeAd({
+    required double screenHeight,
+    required bool iosNativeDiagnostic,
+  }) => screenHeight >= 740 && !iosNativeDiagnostic;
+
   static const bool enableLiveAds =
       bool.fromEnvironment('KYEOBOM_ENABLE_LIVE_ADS', defaultValue: false);
   // Separate experimental gates. Live-video entry NEVER requires an ad.
@@ -22,29 +58,35 @@ abstract final class KyeobomAdPolicy {
       String.fromEnvironment('KYEOBOM_AD_FORMAT', defaultValue: 'auto');
 
   static const String androidAppId =
-      String.fromEnvironment('KYEOBOM_ANDROID_ADMOB_APP_ID');
+      String.fromEnvironment('KYEOBOM_ANDROID_ADMOB_APP_ID',
+          defaultValue: 'ca-app-pub-5893975529562336~4819053037');
   static const String iosAppId =
-      String.fromEnvironment('KYEOBOM_IOS_ADMOB_APP_ID');
+      String.fromEnvironment('KYEOBOM_IOS_ADMOB_APP_ID',
+          defaultValue: 'ca-app-pub-5893975529562336~6718137266');
+  // Owner-provided AdMob APP and AD UNIT IDs (2 apps, 10 units).
+  // Debug/Profile always use Google's test ad UNITS; release remains disabled
+  // unless --dart-define=KYEOBOM_ENABLE_LIVE_ADS=true is explicitly set.
+  // Do not use real ad units for routine manual QA or click on live ads.
   static const String androidBanner =
-      String.fromEnvironment('KYEOBOM_ANDROID_ADMOB_BANNER_ID');
+      String.fromEnvironment('KYEOBOM_ANDROID_ADMOB_BANNER_ID', defaultValue: 'ca-app-pub-5893975529562336/6414884933');
   static const String androidNative =
-      String.fromEnvironment('KYEOBOM_ANDROID_ADMOB_NATIVE_ID');
+      String.fromEnvironment('KYEOBOM_ANDROID_ADMOB_NATIVE_ID', defaultValue: 'ca-app-pub-5893975529562336/2426317273');
   static const String iosBanner =
-      String.fromEnvironment('KYEOBOM_IOS_ADMOB_BANNER_ID');
+      String.fromEnvironment('KYEOBOM_IOS_ADMOB_BANNER_ID', defaultValue: 'ca-app-pub-5893975529562336/6152316006');
   static const String iosNative =
-      String.fromEnvironment('KYEOBOM_IOS_ADMOB_NATIVE_ID');
+      String.fromEnvironment('KYEOBOM_IOS_ADMOB_NATIVE_ID', defaultValue: 'ca-app-pub-5893975529562336/4638768834');
   static const String androidAppOpen =
-      String.fromEnvironment('KYEOBOM_ANDROID_ADMOB_APP_OPEN_ID');
+      String.fromEnvironment('KYEOBOM_ANDROID_ADMOB_APP_OPEN_ID', defaultValue: 'ca-app-pub-5893975529562336/2085078484');
   static const String iosAppOpen =
-      String.fromEnvironment('KYEOBOM_IOS_ADMOB_APP_OPEN_ID');
+      String.fromEnvironment('KYEOBOM_IOS_ADMOB_APP_OPEN_ID', defaultValue: 'ca-app-pub-5893975529562336/4647662645');
   static const String androidInterstitial =
-      String.fromEnvironment('KYEOBOM_ANDROID_ADMOB_INTERSTITIAL_ID');
+      String.fromEnvironment('KYEOBOM_ANDROID_ADMOB_INTERSTITIAL_ID', defaultValue: 'ca-app-pub-5893975529562336/2290585905');
   static const String iosInterstitial =
-      String.fromEnvironment('KYEOBOM_IOS_ADMOB_INTERSTITIAL_ID');
+      String.fromEnvironment('KYEOBOM_IOS_ADMOB_INTERSTITIAL_ID', defaultValue: 'ca-app-pub-5893975529562336/5599275527');
   static const String androidRewarded =
-      String.fromEnvironment('KYEOBOM_ANDROID_ADMOB_REWARDED_ID');
+      String.fromEnvironment('KYEOBOM_ANDROID_ADMOB_REWARDED_ID', defaultValue: 'ca-app-pub-5893975529562336/6343887693');
   static const String iosRewarded =
-      String.fromEnvironment('KYEOBOM_IOS_ADMOB_REWARDED_ID');
+      String.fromEnvironment('KYEOBOM_IOS_ADMOB_REWARDED_ID', defaultValue: 'ca-app-pub-5893975529562336/5529499473');
 
   static const String _demoPrefix = 'ca-app-pub-3940256099942544';
   static const String _androidBannerDemo =
@@ -83,6 +125,7 @@ abstract final class KyeobomAdPolicy {
     required bool release,
   }) {
     if (!supportsPlatform(platform)) return false;
+    if (qaAdsDisabled) return false; // Debug-only camera QA bypass.
     if (!release) return true; // Google demo units ONLY for QA builds.
     if (!enableLiveAds) return false; // Explicit production opt-in.
     return _valid(

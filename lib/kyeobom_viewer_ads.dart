@@ -23,6 +23,27 @@ class KyeobomAdsRuntime extends InheritedWidget {
   bool updateShouldNotify(KyeobomAdsRuntime oldWidget) => false;
 }
 
+/// Layout boundary for the viewer's advertisement footer.
+///
+/// This must shrink-wrap its children: Scaffold.bottomNavigationBar otherwise
+/// takes up the full iPhone height and makes the viewer home/CTA invisible.
+/// Keep the boundary independent of the Google SDK for widget regression tests.
+class KyeobomAdFooterLayout extends StatelessWidget {
+  const KyeobomAdFooterLayout({super.key, required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.only(top: 12),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: children,
+        ),
+      );
+}
+
 /// Shown ONLY below the controls on the portrait viewer dashboard.
 /// It is not instantiated on the station or in the landscape/live view.
 /// No interstitials, rewarded gates, app-open ads or full-screen overlays.
@@ -256,8 +277,11 @@ class _KyeobomViewerHomeAdState extends State<KyeobomViewerHomeAd> {
       format: KyeobomAdFormat.native,
       release: kReleaseMode,
     ) != null;
+    // Small native template needs >=320dp inside the 20dp page margins
+    // and 1dp card borders. iOS native remains explicit debug-only QA.
     if (_format == KyeobomAdFormat.native && canNative &&
-        MediaQuery.sizeOf(context).width >= 345) {
+        KyeobomAdPolicy.nativeAllowed(defaultTargetPlatform) &&
+        KyeobomAdPolicy.canFitHomeAd(MediaQuery.sizeOf(context).width)) {
       _loadNative();
     } else {
       await _loadBannerSafely();
@@ -315,7 +339,9 @@ class _KyeobomViewerHomeAdState extends State<KyeobomViewerHomeAd> {
           }
           setState(() {
             _loaded = true;
-            _adHeight = 110;
+            // Google recommends 90-200dp for small native templates. Make
+            // room for attribution and full CTA without clipping assets.
+            _adHeight = 160;
           });
         },
         onAdFailedToLoad: (ad, error) {
@@ -357,12 +383,18 @@ class _KyeobomViewerHomeAdState extends State<KyeobomViewerHomeAd> {
       release: kReleaseMode,
     );
     if (id == null || _banner != null || _loaded || !mounted ||
-        _disposed || !_consentGranted) return;
+        _disposed || !_consentGranted ||
+        !KyeobomAdPolicy.canFitHomeAd(MediaQuery.sizeOf(context).width)) {
+      // On 320/360dp wide devices, suppress the banner rather than letting
+      // a 320dp AdWidget overflow 20dp margins or cover the camera CTA.
+      return;
+    }
     _format = KyeobomAdFormat.banner;
-    final available = (MediaQuery.sizeOf(context).width - 42).clamp(200, 460);
-    final size = await AdSize.getLargeAnchoredAdaptiveBannerAdSize(
-      available.toInt(),
-    ) ?? AdSize.banner;
+    // The home footer has a fixed, deliberately compact 320x50 ad slot.
+    // A "large anchored adaptive" request can reserve up to 150 logical
+    // pixels for a 50/60px creative, leaving distracting letterbox bars.
+    // Request an actual standard-size banner rather than cropping a large ad.
+    const size = AdSize.banner;
     if (!mounted || _disposed) return;
     final ad = BannerAd(
       adUnitId: id,
@@ -416,10 +448,17 @@ class _KyeobomViewerHomeAdState extends State<KyeobomViewerHomeAd> {
 
   void _clearAd() {
     _loaded = false;
-    _native?.dispose();
+    final oldNative = _native;
+    final oldBanner = _banner;
     _native = null;
-    _banner?.dispose();
     _banner = null;
+    // Google recommends disposing a native platform ad AFTER AdWidget is
+    // unmounted. Releasing it during a live-view route/orientation change can
+    // leave a native UIKit overlay above Flutter's camera controls on iOS.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (oldNative != null) unawaited(oldNative.dispose());
+      if (oldBanner != null) unawaited(oldBanner.dispose());
+    });
   }
 
   Future<void> _showMetrics() async {
@@ -470,11 +509,8 @@ class _KyeobomViewerHomeAdState extends State<KyeobomViewerHomeAd> {
         !KyeobomAdPolicy.enableRewarded) {
       return const SizedBox.shrink();
     }
-    return Padding(
-      padding: const EdgeInsets.only(top: 20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
+    return KyeobomAdFooterLayout(
+      children: [
           if (_rewardSuppressesHome)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 9),
@@ -499,12 +535,28 @@ class _KyeobomViewerHomeAdState extends State<KyeobomViewerHomeAd> {
                 border: Border.all(color: KyeobomPalette.border),
                 borderRadius: BorderRadius.circular(12),
               ),
+              // Explicit vertical bounds prevent the platform ad layout
+              // from expanding the bottom navigation to screen height.
               child: SizedBox(
-                width: double.infinity,
                 height: _adHeight.toDouble(),
-                child: _native != null
-                    ? AdWidget(ad: _native!)
-                    : AdWidget(ad: _banner!),
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final native = _native;
+                    final banner = _banner;
+                    final available = constraints.maxWidth.isFinite
+                        ? constraints.maxWidth : 400.0;
+                    final width = native != null
+                        ? available.clamp(0.0, 400.0).toDouble()
+                        : banner!.size.width.toDouble();
+                    return Center(
+                      child: SizedBox(
+                        width: width,
+                        height: _adHeight.toDouble(),
+                        child: AdWidget(ad: native ?? banner!),
+                      ),
+                    );
+                  },
+                ),
               ),
             ),
           ],
@@ -543,8 +595,7 @@ class _KyeobomViewerHomeAdState extends State<KyeobomViewerHomeAd> {
                   style: const TextStyle(fontSize: 10)),
               ),
             ),
-        ],
-      ),
+      ],
     );
   }
 }

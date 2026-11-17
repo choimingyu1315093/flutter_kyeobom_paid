@@ -1,4 +1,4 @@
-package com.example.flutter_home_camera
+package com.mingyu.kyeobom
 
 import android.content.Context
 import android.os.BatteryManager
