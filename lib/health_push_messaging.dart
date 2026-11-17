@@ -160,9 +160,11 @@ class HealthPushMessaging {
       _startListeners();
       // The in-app banner handles the foreground case, including landscape
       // live video. Disable duplicated iOS foreground system banners.
-      await FirebaseMessaging.instance
-          .setForegroundNotificationPresentationOptions(
-            alert: false, badge: false, sound: false);
+      if (defaultTargetPlatform == TargetPlatform.iOS) {
+        await FirebaseMessaging.instance
+            .setForegroundNotificationPresentationOptions(
+              alert: false, badge: false, sound: false);
+      }
       final settings = await FirebaseMessaging.instance.requestPermission(
         alert: true, badge: true, sound: true);
       if (revision != _roleRevision) return;
