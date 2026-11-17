@@ -30,6 +30,14 @@ abstract final class KyeobomAdPolicy {
   static bool get iosNativeQa =>
       kDebugMode && enableIosNative && formatOverride == 'native';
 
+  // Standard BannerAd is 320x50 dp; leave room for the page's
+  // 20dp margins on both sides and the ad frame's 1dp borders.
+  // Small native templates also recommend at least 320dp content width.
+  static const double minHomeAdViewportWidth = 362;
+
+  static bool canFitHomeAd(double viewportWidth) =>
+      viewportWidth >= minHomeAdViewportWidth;
+
   static bool useStickyHomeAd({
     required double screenHeight,
     required bool iosNativeDiagnostic,
