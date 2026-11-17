@@ -20,16 +20,23 @@ class DeviceHealthPublisher {
 
   static const channel = MethodChannel('home_camera/screen');
   static const heartbeatPeriod = Duration(minutes: 2);
+  static const samplePeriod = Duration(seconds: 30);
 
   Timer? _timer;
+  DateTime? _lastWriteAttempt;
+  String? _lastFingerprint;
   bool _busy = false;
   bool _closed = true;
 
   void start() {
     if (!_closed) return;
     _closed = false;
+    _lastWriteAttempt = null;
+    _lastFingerprint = null;
     unawaited(refresh());
-    _timer = Timer.periodic(heartbeatPeriod, (_) => unawaited(refresh()));
+    // Check the OS often, but only write when values change or a heartbeat
+    // becomes due. This protects the phone without high Firestore write costs.
+    _timer = Timer.periodic(samplePeriod, (_) => unawaited(refresh()));
   }
 
   Future<void> refresh() async {
@@ -49,6 +56,18 @@ class DeviceHealthPublisher {
       onSample?.call(snapshot);
 
       if (_closed) return;
+      final now = DateTime.now();
+      final fingerprint = '${snapshot.battery}/${snapshot.charging}/'
+          '${snapshot.thermal}/${snapshot.network}/${snapshot.platform}';
+      final last = _lastWriteAttempt;
+      final changed = fingerprint != _lastFingerprint;
+      final due = last == null || now.difference(last) >= heartbeatPeriod;
+      if (!changed && !due) return;
+
+      // Reserve the upload slot before awaiting Firestore. If the device is
+      // offline, do not queue a new pending write every 30 seconds.
+      _lastWriteAttempt = now;
+      _lastFingerprint = fingerprint;
       await RemoteControl.instance.station
           .collection('telemetry').doc('health').set({
         ...snapshot.toFirestore(),
