@@ -25,26 +25,30 @@ abstract final class KyeobomAdPolicy {
       String.fromEnvironment('KYEOBOM_ANDROID_ADMOB_APP_ID');
   static const String iosAppId =
       String.fromEnvironment('KYEOBOM_IOS_ADMOB_APP_ID');
+  // Real AdMob ad UNIT IDs supplied by the app owner (10 units).
+  // Each can still be overridden by --dart-define. Production is FAIL-CLOSED:
+  // AdMob app IDs (~), native manifests and KYEOBOM_ENABLE_LIVE_ADS must
+  // be configured separately. Debug/Profile always use Google's demo units.
   static const String androidBanner =
-      String.fromEnvironment('KYEOBOM_ANDROID_ADMOB_BANNER_ID');
+      String.fromEnvironment('KYEOBOM_ANDROID_ADMOB_BANNER_ID', defaultValue: 'ca-app-pub-5893975529562336/6414884933');
   static const String androidNative =
-      String.fromEnvironment('KYEOBOM_ANDROID_ADMOB_NATIVE_ID');
+      String.fromEnvironment('KYEOBOM_ANDROID_ADMOB_NATIVE_ID', defaultValue: 'ca-app-pub-5893975529562336/2426317273');
   static const String iosBanner =
-      String.fromEnvironment('KYEOBOM_IOS_ADMOB_BANNER_ID');
+      String.fromEnvironment('KYEOBOM_IOS_ADMOB_BANNER_ID', defaultValue: 'ca-app-pub-5893975529562336/6152316006');
   static const String iosNative =
-      String.fromEnvironment('KYEOBOM_IOS_ADMOB_NATIVE_ID');
+      String.fromEnvironment('KYEOBOM_IOS_ADMOB_NATIVE_ID', defaultValue: 'ca-app-pub-5893975529562336/4638768834');
   static const String androidAppOpen =
-      String.fromEnvironment('KYEOBOM_ANDROID_ADMOB_APP_OPEN_ID');
+      String.fromEnvironment('KYEOBOM_ANDROID_ADMOB_APP_OPEN_ID', defaultValue: 'ca-app-pub-5893975529562336/2085078484');
   static const String iosAppOpen =
-      String.fromEnvironment('KYEOBOM_IOS_ADMOB_APP_OPEN_ID');
+      String.fromEnvironment('KYEOBOM_IOS_ADMOB_APP_OPEN_ID', defaultValue: 'ca-app-pub-5893975529562336/4647662645');
   static const String androidInterstitial =
-      String.fromEnvironment('KYEOBOM_ANDROID_ADMOB_INTERSTITIAL_ID');
+      String.fromEnvironment('KYEOBOM_ANDROID_ADMOB_INTERSTITIAL_ID', defaultValue: 'ca-app-pub-5893975529562336/2290585905');
   static const String iosInterstitial =
-      String.fromEnvironment('KYEOBOM_IOS_ADMOB_INTERSTITIAL_ID');
+      String.fromEnvironment('KYEOBOM_IOS_ADMOB_INTERSTITIAL_ID', defaultValue: 'ca-app-pub-5893975529562336/5599275527');
   static const String androidRewarded =
-      String.fromEnvironment('KYEOBOM_ANDROID_ADMOB_REWARDED_ID');
+      String.fromEnvironment('KYEOBOM_ANDROID_ADMOB_REWARDED_ID', defaultValue: 'ca-app-pub-5893975529562336/6343887693');
   static const String iosRewarded =
-      String.fromEnvironment('KYEOBOM_IOS_ADMOB_REWARDED_ID');
+      String.fromEnvironment('KYEOBOM_IOS_ADMOB_REWARDED_ID', defaultValue: 'ca-app-pub-5893975529562336/5529499473');
 
   static const String _demoPrefix = 'ca-app-pub-3940256099942544';
   static const String _androidBannerDemo =
