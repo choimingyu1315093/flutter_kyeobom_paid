@@ -37,3 +37,14 @@ Check both iOS and Android as station/viewer, charging unplug/plug, Wi-Fi/cellul
 - `DeviceHealthCard` now avoids Firestore when Firebase/auth is unavailable; added a no-Firebase regression widget test.
 - Cached telemetry stream and added 15-second local stale-heartbeat recheck so the viewer eventually shows a disconnected station without needing a new Firestore event.
 - Please rerun `flutter analyze`, `flutter test`, Android and iOS functional QA. CI/device results after this patch are not yet available.
+
+## 2026-11-17 telemetry permission root cause and deployment gate
+- Verified code writes `homecamStations/{uid}/telemetry/health`.
+- Repository `firestore.rules` previously had explicit rules for `sessions` but **no `telemetry` subcollection match**.
+- Firestore security rules for parent documents do not inherit to subcollections. With those rules deployed, the status write/read is denied.
+- Fixed on this branch by adding an explicit owner-only `match /telemetry/health { allow read, write: if isOwner(); }` nested under `match /homecamStations/{uid}`.
+- Station health sync now surfaces `permission-denied` separately rather than silently ignoring all Firebase errors; viewer shows an access-error notice.
+- **Deployment not done by GitHub commit.** This repository has no `firebase.json` or `.firebaserc`. The project's live Firestore rules were not inspected/deployed from this environment.
+- Before QA, Firebase console -> project HomeCamera -> Firestore Database -> Rules: review the current rules. Merge just the new telemetry block under `homecamStations/{uid}`; preserve any other live rules, then Publish. Do NOT replace current production rules wholesale from this repository if they have diverged.
+- Re-run `flutter test` and Android/iOS QA, and verify `homecamStations/{uid}/telemetry/health` exists and its `lastSeen` changes every ~45s.
+- Even after status transmission is fixed, automatic thermal throttling and background disconnect push alerts remain unimplemented, so Smart Management is NOT feature-complete.
