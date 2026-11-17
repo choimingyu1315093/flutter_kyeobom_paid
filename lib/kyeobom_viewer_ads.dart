@@ -277,11 +277,11 @@ class _KyeobomViewerHomeAdState extends State<KyeobomViewerHomeAd> {
       format: KyeobomAdFormat.native,
       release: kReleaseMode,
     ) != null;
-    // iOS native template remains opt-in until its validator issue passes.
-    // 360pt viewport leaves >=320pt after home horizontal padding.
+    // Small native template needs >=320dp inside the 20dp page margins
+    // and 1dp card borders. iOS native remains explicit debug-only QA.
     if (_format == KyeobomAdFormat.native && canNative &&
         KyeobomAdPolicy.nativeAllowed(defaultTargetPlatform) &&
-        MediaQuery.sizeOf(context).width >= 360) {
+        KyeobomAdPolicy.canFitHomeAd(MediaQuery.sizeOf(context).width)) {
       _loadNative();
     } else {
       await _loadBannerSafely();
@@ -339,8 +339,9 @@ class _KyeobomViewerHomeAdState extends State<KyeobomViewerHomeAd> {
           }
           setState(() {
             _loaded = true;
-            // Room for the small native template and its attribution/CTA.
-            _adHeight = 132;
+            // Google recommends 90-200dp for small native templates. Make
+            // room for attribution and full CTA without clipping assets.
+            _adHeight = 160;
           });
         },
         onAdFailedToLoad: (ad, error) {
@@ -382,7 +383,12 @@ class _KyeobomViewerHomeAdState extends State<KyeobomViewerHomeAd> {
       release: kReleaseMode,
     );
     if (id == null || _banner != null || _loaded || !mounted ||
-        _disposed || !_consentGranted) return;
+        _disposed || !_consentGranted ||
+        !KyeobomAdPolicy.canFitHomeAd(MediaQuery.sizeOf(context).width)) {
+      // On 320/360dp wide devices, suppress the banner rather than letting
+      // a 320dp AdWidget overflow 20dp margins or cover the camera CTA.
+      return;
+    }
     _format = KyeobomAdFormat.banner;
     // The home footer has a fixed, deliberately compact 320x50 ad slot.
     // A "large anchored adaptive" request can reserve up to 150 logical
