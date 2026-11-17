@@ -16,7 +16,7 @@ Base: `feature/ad-revenue-full-optimization-20261115`
 - No automatic camera quality throttling or thermal shutdown yet.
 - Firestore station document uses same-account pairing; multiple stations per account are not isolated.
 - Telemetry is written while station screen is active; iOS background execution is not guaranteed.
-- Android/iOS real-device builds, network disconnect recovery and extended thermal soak test NOT run in this environment.
+- User-reported iPhone release build succeeded. User's Android log confirms release APK built and installed successfully (2026-11-17); runtime behavior is not yet verified. Network disconnect recovery and extended thermal soak test NOT run in this environment.
 - Do not merge before those issues are addressed and QA is approved.
 
 ## Local QA
@@ -31,3 +31,9 @@ flutter test
 flutter run
 ```
 Check both iOS and Android as station/viewer, charging unplug/plug, Wi-Fi/cellular/offline, station exit, foreground/background, 2h heat, live video and audio regression.
+
+## 2026-11-17 widget-test regression fix
+- Submitted log: `flutter test` +35/-5; all five failures were Firebase `[core/no-app]` at `DeviceHealthCard` during isolated layout tests.
+- `DeviceHealthCard` now avoids Firestore when Firebase/auth is unavailable; added a no-Firebase regression widget test.
+- Cached telemetry stream and added 15-second local stale-heartbeat recheck so the viewer eventually shows a disconnected station without needing a new Firestore event.
+- Please rerun `flutter analyze`, `flutter test`, Android and iOS functional QA. CI/device results after this patch are not yet available.
