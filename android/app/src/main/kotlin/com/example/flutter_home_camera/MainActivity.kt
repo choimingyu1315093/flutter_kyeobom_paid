@@ -26,7 +26,7 @@ class MainActivity : FlutterActivity() {
                             val power = getSystemService(Context.POWER_SERVICE) as? PowerManager
                             val connectivity = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
                             val network = connectivity?.activeNetwork
-                            val caps = network?.let { connectivity.getNetworkCapabilities(it) }
+                            val caps = network?.let { connectivity?.getNetworkCapabilities(it) }
                             val networkType = when {
                                 caps == null -> "offline"
                                 caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "wifi"
