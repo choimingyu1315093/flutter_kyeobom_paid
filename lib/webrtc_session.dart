@@ -45,10 +45,12 @@ class HomeCamWebRtcSession {
   bool _remoteDescriptionSet = false;
   bool _answerInProgress = false;
   bool _closing = false;
+  bool _reducedVideo = false;
 
   RTCVideoRenderer? get renderer => _remoteRenderer;
   bool get isRunning => _sessionId != null;
   String? get sessionId => _sessionId;
+  bool get isVideoReduced => _reducedVideo;
 
   DocumentReference<Map<String, dynamic>> _session(String id) =>
       RemoteControl.instance.session(id);
@@ -317,7 +319,7 @@ class HomeCamWebRtcSession {
   }
 
   /// Station only accesses the camera after finding an authenticated offer.
-  Future<void> startStation(String id) async {
+  Future<void> startStation(String id, {bool reducedQuality = false}) async {
     await end(notifyRemote: false);
     _closing = false;
     _viewer = false;
@@ -388,11 +390,12 @@ class HomeCamWebRtcSession {
         'audio': false,
         'video': {
           'facingMode': 'environment',
-          'width': {'ideal': 1280},
-          'height': {'ideal': 720},
-          'frameRate': {'ideal': 20},
+          'width': {'ideal': reducedQuality ? 640 : 1280},
+          'height': {'ideal': reducedQuality ? 360 : 720},
+          'frameRate': {'ideal': reducedQuality ? 12 : 20},
         },
       });
+      _reducedVideo = reducedQuality;
       for (final track in _cameraStream!.getVideoTracks()) {
         await _peer!.addTrack(track, _cameraStream!);
       }
@@ -410,6 +413,35 @@ class HomeCamWebRtcSession {
     }
   }
 
+  /// Best-effort thermal/battery quality adjustment while a session is live.
+  /// A device may reject new camera constraints; never tear down working video.
+  Future<bool> setReducedQuality(bool reduced) async {
+    final stream = _cameraStream;
+    if (_viewer || _closing || stream == null) return false;
+    if (_reducedVideo == reduced) return true;
+    final tracks = stream.getVideoTracks();
+    if (tracks.isEmpty) return false;
+    try {
+      for (final track in tracks) {
+        await track.applyConstraints({
+          'width': {'ideal': reduced ? 640 : 1280},
+          'height': {'ideal': reduced ? 360 : 720},
+          'frameRate': {'ideal': reduced ? 12 : 20},
+        });
+      }
+      if (_closing || _cameraStream != stream) return false;
+      _reducedVideo = reduced;
+      return true;
+    } catch (error) {
+      // Some cameras do not support live constraint updates. Initial capture
+      // still uses the reduced profile on the next remote view session.
+      if (kDebugMode) {
+        debugPrint('[kyeobom/health] Video adaptation unsupported: $error');
+      }
+      return false;
+    }
+  }
+
   /// Releases camera, renderer, peers and Firestore listeners.
   Future<void> end({bool notifyRemote = true}) async {
     final id = _sessionId;
@@ -417,6 +449,7 @@ class HomeCamWebRtcSession {
 
     _closing = true;
     _sessionId = null;
+    _reducedVideo = false;
     await _sessionSub?.cancel();
     _sessionSub = null;
     await _candidatesSub?.cancel();
