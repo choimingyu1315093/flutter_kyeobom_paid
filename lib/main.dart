@@ -20,6 +20,7 @@ import 'kyeobom_fullscreen_ads.dart';
 import 'kyeobom_auth_screens.dart';
 import 'kyeobom_station_start_dialog.dart';
 import 'homecam_session_housekeeping.dart';
+import 'device_health.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -168,6 +169,7 @@ class _StationScreenState extends State<StationScreen>
   final SharedPreferencesAsync _micPreferences = SharedPreferencesAsync();
   static const _micAutoKey = 'station_auto_microphone_when_viewing_v1';
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _commands;
+  DeviceHealthPublisher? _health;
   Future<void> _commandQueue = Future<void>.value();
 
   String _status = '연결 대기 준비 중';
@@ -207,6 +209,10 @@ class _StationScreenState extends State<StationScreen>
     WidgetsBinding.instance.addObserver(this);
     unawaited(_enterWaiting());
     unawaited(_connectCommands());
+    _health = DeviceHealthPublisher(onThermalWarning: (warning) {
+      if (mounted && warning) setState(() => _status = '발열 높음 · 통풍 상태를 확인하세요');
+    });
+    _health!.start();
   }
 
   Future<void> _enterWaiting() async {
@@ -373,6 +379,7 @@ class _StationScreenState extends State<StationScreen>
     if (_leaving) return;
     setState(() => _leaving = true);
     await _commands?.cancel();
+    await _health?.stop();
     try {
       await _microphone.disable();
       await _rtc.end();
@@ -407,6 +414,7 @@ class _StationScreenState extends State<StationScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    unawaited(_health?.stop());
     unawaited(_commands?.cancel());
     unawaited(_microphone.disable());
     unawaited(_rtc.end(notifyRemote: !_leaving));
