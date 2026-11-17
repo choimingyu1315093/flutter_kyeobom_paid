@@ -433,12 +433,22 @@ class HomeCamWebRtcSession {
       _reducedVideo = reduced;
       return true;
     } catch (error) {
-      // Some cameras do not support live constraint updates. Initial capture
-      // still uses the reduced profile on the next remote view session.
-      if (kDebugMode) {
-        debugPrint('[kyeobom/health] Video adaptation unsupported: $error');
+      // On native devices where camera capture constraints cannot be updated,
+      // attempt WebRTC track adaptation without recreating the peer/camera.
+      try {
+        for (final track in tracks) {
+          await track.adaptRes(reduced ? 640 : 1280, reduced ? 360 : 720);
+        }
+        if (_closing || _cameraStream != stream) return false;
+        _reducedVideo = reduced;
+        return true;
+      } catch (_) {
+        // Existing video and audio must survive an unsupported operation.
+        if (kDebugMode) {
+          debugPrint('[kyeobom/health] Video adaptation unsupported: $error');
+        }
+        return false;
       }
-      return false;
     }
   }
 
