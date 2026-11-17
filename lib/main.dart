@@ -48,6 +48,7 @@ class HomeCameraApp extends StatelessWidget {
         theme: KyeobomTheme.light,
         // Render real FCM warnings above the landscape viewer video.
         builder: (context, child) => Stack(
+          fit: StackFit.expand,
           children: [
             if (child != null) child,
             const Positioned(
