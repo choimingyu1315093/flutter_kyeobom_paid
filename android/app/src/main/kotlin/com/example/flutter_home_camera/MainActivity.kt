@@ -6,6 +6,8 @@ import android.os.PowerManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Build
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.view.Surface
 import android.view.WindowManager
 import io.flutter.embedding.android.FlutterActivity
@@ -15,6 +17,19 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        // Android 8+: background FCM uses this channel. Do not start any
+        // camera, microphone or foreground service just for a notification.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val notifications = getSystemService(Context.NOTIFICATION_SERVICE)
+                as? NotificationManager
+            notifications?.createNotificationChannel(
+                NotificationChannel(
+                    "kyeobom_health_alerts",
+                    "거치폰 배터리·발열 위험",
+                    NotificationManager.IMPORTANCE_HIGH
+                )
+            )
+        }
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "home_camera/screen")
             .setMethodCallHandler { call, result ->
                 when (call.method) {
