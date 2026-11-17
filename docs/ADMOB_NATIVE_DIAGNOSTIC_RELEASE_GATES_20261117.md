@@ -69,42 +69,32 @@ Google 공식 안내:
 ## Mac 로컬 파일 보호 + 테스트
 
 Mac에는 사용자가 직접 넣은 Android/iOS 아이콘, 새 Firebase 설정,
-Xcode 서명, `lib/firebase_options.dart` 등이
-Git에 추적되지 않은 채 존재함.
-브랜치 전체를 switch / reset / clean하지 말 것.
+Xcode 서명, `lib/firebase_options.dart` 등이 Git 미추적 상태로 존재.
+**브랜치 switch/reset/clean 없이 기존 디렉터리에서 선택적 패치**.
 
-이번 변경 파일은 아래 4개만 로컬에 반영해 테스트할 수 있음.
+새 안전 적용 도구는 `git apply --check`로 현 코드와 충돌 여부를
+**먼저 검사**한다. 충돌 시 아무 파일도 수정하지 않고 종료.
+성공하면 기존 4개 광고 관련 파일을 Desktop에 먼저 백업한 뒤
+**변경된 코드 조각만 적용**한다. 아이콘/Firebase/서명 파일은 제외.
 
 ```bash
 cd ~/Flutter/flutter_home_camera
 git fetch origin
-
-# 변경 대상 파일이 사용자의 미커밋 작업인지 먼저 확인:
-git status --short -- \
-  lib/kyeobom_ad_policy.dart \
-  lib/kyeobom_screens.dart \
-  lib/kyeobom_viewer_ads.dart \
-  test/kyeobom_ad_policy_test.dart
-
-# 위 경로에 미커밋 변경 사항이 없다면 파일별로 적용:
-for f in \
-  lib/kyeobom_ad_policy.dart \
-  lib/kyeobom_screens.dart \
-  lib/kyeobom_viewer_ads.dart \
-  test/kyeobom_ad_policy_test.dart
-do
-  git show "origin/fix/admob-native-validator-qa-20261117:$f" > "$f"
-done
+mkdir -p tools
+git show origin/fix/admob-native-validator-qa-20261117:tools/apply_admob_native_qa_locally.py \
+  > tools/apply_admob_native_qa_locally.py
+python3 tools/apply_admob_native_qa_locally.py
 
 flutter test test/kyeobom_ad_policy_test.dart
 flutter test test/kyeobom_ad_placement_test.dart
 flutter test
 ```
 
-**중요:** 수정 대상 4개 파일이 다른 개발 브랜치에서
-다르게 편집되어 있다면 `git show > ...` 방법은
-변경을 잃을 수 있으니 쓰지 말고 Git diff를 확인해
-선택적 패치(또는 전용 worktree)로 통합해야 한다.
+이 도구는 현재 브랜치의 다른 작업과 변경 부위가 겹치면 적용을
+**거절**한다. 이 경우 코드 원격 HEAD나 기존 브랜치를 강제로
+초기화하지 말고 출력된 충돌을 확인해 선택적으로 병합해야 함.
+코드만 적용하므로 전체 신규 브랜치의 다른 수정이
+Mac에 반영됐다고 가정하면 안 됨.
 
 ## 실광고 활성화 전 필수 외부 단계
 
