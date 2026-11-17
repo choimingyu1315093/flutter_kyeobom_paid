@@ -8,6 +8,13 @@ service cloud.firestore {
 
       allow read, write: if isOwner();
 
+      // Station device-health heartbeat. Restrict to the owner and
+      // the single telemetry document used by smart device management.
+      // Parent document permissions do not apply to subcollections.
+      match /telemetry/health {
+        allow read, write: if isOwner();
+      }
+
       // Video never traverses Firestore: only SDP and ICE candidates.
       match /sessions/{sessionId} {
         allow read, write: if isOwner();
