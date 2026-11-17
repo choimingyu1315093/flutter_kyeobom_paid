@@ -1,5 +1,60 @@
 # 켜봄 iOS Native Ad Validator / 실시간 보기 회귀 QA (2026-11-17)
 
+
+## 추가 수정: 배너가 홈 화면 전체 높이를 차지하는 문제
+
+2026-11-17 iPhone 배너 테스트에서 `Test mode` 광고는 정상 로드됐지만,
+그 아래의 `켜봄` AppBar와 `실시간 보기` 버튼이 화면에서 사라짐.
+
+원인 확인: `KyeobomViewerHomeAd`의 최상위 `Column` 기본값
+`mainAxisSize: MainAxisSize.max`가
+`Scaffold.bottomNavigationBar` 내에서 가용 높이를 모두 소비했음.
+광고는 실제 수백 픽셀만 차지해야 하는데 홈 본문 전체가 밀린 것.
+
+수정:
+- `KyeobomAdFooterLayout`을 분리하고
+  `mainAxisSize: MainAxisSize.min`으로 콘텐츠 높이만 차지하게 변경.
+- 배너/네이티브 `LayoutBuilder`에는 `SizedBox(height: _adHeight)`
+  경계를 추가해 iOS UIKit 플랫폼뷰가 세로로 팽창하지 않도록 조치.
+- `test/kyeobom_ad_placement_test.dart`에 390×844 가상 iPhone 크기,
+  132pt 광고 영역을 둔 경우에도 홈 CTA가 화면에 남고 눌리는지
+  확인하는 회귀 테스트를 추가. 네이티브 SDK를 실행하지 않는 테스트.
+- WebRTC, 카메라, 오디오, Firebase, 앱 ID, 광고 단위 ID 변경 없음.
+
+**배너 테스트 화면에는 네이티브 광고 검사기의 `See issues` 버튼이
+나오지 않는 것이 정상**임. 이전 네이티브 validator의 원인 1건은
+별도로 남아 있으며 배너 레이아웃 해결이 곧 네이티브 정책 통과를
+뜻하지 않음.
+
+### Mac에서 이번 수정 받아오기
+
+이미 `fix/ios-native-ad-validator-viewer-20261117` 브랜치라면:
+
+```bash
+cd ~/Flutter/flutter_home_camera
+git branch --show-current
+git status -sb
+git fetch origin
+git pull --ff-only origin fix/ios-native-ad-validator-viewer-20261117
+flutter pub get
+flutter analyze
+flutter test
+flutter run -d 00008130-001250C81AF3803A \
+  --dart-define=KYEOBOM_AD_FORMAT=auto
+```
+
+다른 브랜치에 있고 로컬 설정 및 아이콘이 수정돼 있다면
+`git stash push -u`로 보관 후 해당 수정 브랜치로 이동하여
+`git stash apply`로 복원. 충돌 시 중지. `reset --hard`, `clean -fd`
+금지.
+
+합격 기준: iPhone 홈 제목, `실시간 보기` 버튼, 배너 광고가
+**같은 화면에 정상 노출**되어야 하며 `실시간 보기`를 누르면
+광고 없이 가로 영상과 오디오가 정상 작동해야 함.
+
+---
+
+
 ## 증상과 확인된 사실
 
 - iPhone 뷰어에서 Google 공식 네이티브 테스트 광고 위에
