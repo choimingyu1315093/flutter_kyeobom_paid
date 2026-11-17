@@ -15,6 +15,8 @@ class KyeobomStationView extends StatelessWidget {
     required this.onToggleMicrophone,
     this.microphoneMessage,
     this.healthSyncError,
+    this.healthSummary,
+    this.healthWarning,
     this.autoMicrophoneEnabled = false,
     this.autoMicrophoneBusy = false,
     this.onAutoMicrophoneChanged,
@@ -24,6 +26,7 @@ class KyeobomStationView extends StatelessWidget {
   final bool streaming, microphoneOn, microphoneBusy, leaving;
   final String? microphoneMessage;
   final String? healthSyncError;
+  final String? healthSummary, healthWarning;
   final VoidCallback onLeave, onToggleMicrophone;
   final bool autoMicrophoneEnabled, autoMicrophoneBusy;
   final ValueChanged<bool>? onAutoMicrophoneChanged;
@@ -79,6 +82,24 @@ class KyeobomStationView extends StatelessWidget {
                 maxLines: 3, overflow: TextOverflow.ellipsis,
                 style: const TextStyle(color: Colors.white24, fontSize: 11)),
             ),
+            if (healthSummary != null) ...[
+              const SizedBox(height: 12),
+              Text(healthSummary!,
+                textAlign: TextAlign.center,
+                maxLines: 2, overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: Colors.white54, fontSize: 11)),
+            ],
+            if (healthWarning != null && healthWarning!.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Text(healthWarning!,
+                  textAlign: TextAlign.center, maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: Color(0xFFFFBE8B),
+                    fontSize: 11)),
+              ),
+            ],
             if (streaming) ...[
               const SizedBox(height: 18),
               OutlinedButton.icon(
