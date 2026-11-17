@@ -21,6 +21,20 @@ import UIKit
     )
     channel.setMethodCallHandler { call, result in
       switch call.method {
+      case "getDeviceHealth":
+        UIDevice.current.isBatteryMonitoringEnabled = true
+        let device = UIDevice.current
+        let battery = device.batteryLevel < 0 ? -1 : Int((device.batteryLevel * 100).rounded())
+        let charging = device.batteryState == .charging || device.batteryState == .full
+        let thermal: Int
+        switch ProcessInfo.processInfo.thermalState {
+        case .nominal: thermal = 0
+        case .fair: thermal = 1
+        case .serious: thermal = 2
+        case .critical: thermal = 3
+        @unknown default: thermal = -1
+        }
+        result(["battery": battery, "charging": charging, "thermal": thermal, "network": "unknown", "platform": "iOS"])
       case "enableWaitingMode":
         UIApplication.shared.isIdleTimerDisabled = true
         result(nil)
