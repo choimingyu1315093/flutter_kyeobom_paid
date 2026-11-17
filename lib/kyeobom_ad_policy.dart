@@ -22,13 +22,15 @@ abstract final class KyeobomAdPolicy {
       String.fromEnvironment('KYEOBOM_AD_FORMAT', defaultValue: 'auto');
 
   static const String androidAppId =
-      String.fromEnvironment('KYEOBOM_ANDROID_ADMOB_APP_ID');
+      String.fromEnvironment('KYEOBOM_ANDROID_ADMOB_APP_ID',
+          defaultValue: 'ca-app-pub-5893975529562336~4819053037');
   static const String iosAppId =
-      String.fromEnvironment('KYEOBOM_IOS_ADMOB_APP_ID');
-  // Real AdMob ad UNIT IDs supplied by the app owner (10 units).
-  // Each can still be overridden by --dart-define. Production is FAIL-CLOSED:
-  // AdMob app IDs (~), native manifests and KYEOBOM_ENABLE_LIVE_ADS must
-  // be configured separately. Debug/Profile always use Google's demo units.
+      String.fromEnvironment('KYEOBOM_IOS_ADMOB_APP_ID',
+          defaultValue: 'ca-app-pub-5893975529562336~6718137266');
+  // Owner-provided AdMob APP and AD UNIT IDs (2 apps, 10 units).
+  // Debug/Profile always use Google's test ad UNITS; release remains disabled
+  // unless --dart-define=KYEOBOM_ENABLE_LIVE_ADS=true is explicitly set.
+  // Do not use real ad units for routine manual QA or click on live ads.
   static const String androidBanner =
       String.fromEnvironment('KYEOBOM_ANDROID_ADMOB_BANNER_ID', defaultValue: 'ca-app-pub-5893975529562336/6414884933');
   static const String androidNative =
