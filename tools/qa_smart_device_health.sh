@@ -6,7 +6,11 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 echo "== smart device health QA =="
-echo "Branch: $(git branch --show-current)"
+echo "Commit: $(git rev-parse --short HEAD)"
+echo "== Android release startup regression guard =="
+grep -Fq '"proguard-rules.pro"' android/app/build.gradle.kts
+grep -Fq 'androidx.work.impl.WorkDatabase_Impl' android/app/proguard-rules.pro
+grep -Fq 'androidx.work.impl.WorkDatabase' android/app/proguard-rules.pro
 flutter --version
 flutter pub get
 # Legacy advertising files contain informational lint notices; error/warning
