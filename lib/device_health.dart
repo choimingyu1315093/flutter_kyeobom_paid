@@ -9,8 +9,10 @@ import 'remote_control.dart';
 
 /// Low-frequency telemetry only. Never starts a camera or microphone.
 class DeviceHealthPublisher {
-  DeviceHealthPublisher({this.onThermalWarning});
+  DeviceHealthPublisher({this.onThermalWarning, this.onSyncError});
   final void Function(bool)? onThermalWarning;
+  /// Null clears the last sync error; otherwise contains a safe error code.
+  final void Function(String?)? onSyncError;
   static const channel = MethodChannel('home_camera/screen');
   Timer? _timer;
   bool _busy = false;
@@ -27,7 +29,11 @@ class DeviceHealthPublisher {
     _busy = true;
     try {
       final raw = await channel.invokeMapMethod<String, dynamic>('getDeviceHealth');
-      if (_closed || raw == null) return;
+      if (_closed) return;
+      if (raw == null) {
+        onSyncError?.call('health-unavailable');
+        return;
+      }
       final thermal = raw['thermal'] as int? ?? -1;
       onThermalWarning?.call(thermal >= ((raw['platform'] == 'iOS' ? 2 : 3)));
       await RemoteControl.instance.station.collection('telemetry').doc('health').set({
@@ -39,8 +45,18 @@ class DeviceHealthPublisher {
         'lastSeen': FieldValue.serverTimestamp(),
         'active': true,
       }, SetOptions(merge: true));
-    } catch (_) {
-      // A transient network/platform failure must not interrupt WebRTC.
+      if (!_closed) onSyncError?.call(null);
+    } catch (error) {
+      // Diagnose Firestore permission errors without exposing auth values.
+      // A telemetry failure must NEVER interrupt the camera or microphone.
+      if (!_closed) {
+        final code = error is FirebaseException
+            ? error.code
+            : error is PlatformException
+                ? error.code
+                : 'unexpected-error';
+        onSyncError?.call(code);
+      }
     } finally {
       _busy = false;
     }
@@ -111,7 +127,20 @@ class _DeviceHealthCardState extends State<DeviceHealthCard> {
       stream: telemetry,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
-          return const _DeviceHealthUnavailable();
+          final error = snapshot.error;
+          final denied = error is FirebaseException &&
+              error.code == 'permission-denied';
+          return Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text(
+                denied
+                    ? '상태 정보 접근이 거부됐어요. Firestore 보안 규칙을 확인해 주세요.'
+                    : '거치폰 상태를 불러오지 못했어요. 네트워크를 확인해 주세요.',
+                style: const TextStyle(color: Colors.deepOrange),
+              ),
+            ),
+          );
         }
         final data = snapshot.data?.data();
         final seen = (data?['lastSeen'] as Timestamp?)?.toDate();
