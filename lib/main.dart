@@ -462,6 +462,8 @@ class _StationScreenState extends State<StationScreen>
         state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached;
     if (background && !_leaving) {
+      // Never advertise a backgrounded station as an active home camera.
+      _health?.stop();
       if (mounted) {
         setState(() => _status = '앱 비활성화 · 영상 송출 중단');
       }
@@ -471,6 +473,7 @@ class _StationScreenState extends State<StationScreen>
         },
       );
     } else if (_foreground && mounted) {
+      _health?.start();
       unawaited(_health?.refresh());
       if (!_streaming) setState(() => _status = '연결 대기 중');
     }
