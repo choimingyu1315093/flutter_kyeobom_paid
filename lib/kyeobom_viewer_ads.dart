@@ -256,8 +256,11 @@ class _KyeobomViewerHomeAdState extends State<KyeobomViewerHomeAd> {
       format: KyeobomAdFormat.native,
       release: kReleaseMode,
     ) != null;
+    // iOS native template remains opt-in until its validator issue passes.
+    // 360pt viewport leaves >=320pt after home horizontal padding.
     if (_format == KyeobomAdFormat.native && canNative &&
-        MediaQuery.sizeOf(context).width >= 345) {
+        KyeobomAdPolicy.nativeAllowed(defaultTargetPlatform) &&
+        MediaQuery.sizeOf(context).width >= 360) {
       _loadNative();
     } else {
       await _loadBannerSafely();
@@ -315,7 +318,8 @@ class _KyeobomViewerHomeAdState extends State<KyeobomViewerHomeAd> {
           }
           setState(() {
             _loaded = true;
-            _adHeight = 110;
+            // Room for the small native template and its attribution/CTA.
+            _adHeight = 132;
           });
         },
         onAdFailedToLoad: (ad, error) {
@@ -416,10 +420,17 @@ class _KyeobomViewerHomeAdState extends State<KyeobomViewerHomeAd> {
 
   void _clearAd() {
     _loaded = false;
-    _native?.dispose();
+    final oldNative = _native;
+    final oldBanner = _banner;
     _native = null;
-    _banner?.dispose();
     _banner = null;
+    // Google recommends disposing a native platform ad AFTER AdWidget is
+    // unmounted. Releasing it during a live-view route/orientation change can
+    // leave a native UIKit overlay above Flutter's camera controls on iOS.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (oldNative != null) unawaited(oldNative.dispose());
+      if (oldBanner != null) unawaited(oldBanner.dispose());
+    });
   }
 
   Future<void> _showMetrics() async {
@@ -499,12 +510,25 @@ class _KyeobomViewerHomeAdState extends State<KyeobomViewerHomeAd> {
                 border: Border.all(color: KyeobomPalette.border),
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: SizedBox(
-                width: double.infinity,
-                height: _adHeight.toDouble(),
-                child: _native != null
-                    ? AdWidget(ad: _native!)
-                    : AdWidget(ad: _banner!),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  // An iOS AdWidget must get a concrete width and height.
+                  // Never let the UIKit platform view grow to screen size.
+                  final native = _native;
+                  final banner = _banner;
+                  final available = constraints.maxWidth.isFinite
+                      ? constraints.maxWidth : 400.0;
+                  final width = native != null
+                      ? available.clamp(0.0, 400.0).toDouble()
+                      : banner!.size.width.toDouble();
+                  return Center(
+                    child: SizedBox(
+                      width: width,
+                      height: _adHeight.toDouble(),
+                      child: AdWidget(ad: native ?? banner!),
+                    ),
+                  );
+                },
               ),
             ),
           ],
