@@ -15,6 +15,17 @@ service cloud.firestore {
         allow read, write: if isOwner();
       }
 
+      // Signed-in owner only. A viewer device writes its FCM token,
+      // and the station device clears its token when switching roles.
+      match /devices/{deviceId} {
+        allow read, write: if isOwner();
+      }
+
+      // The backend owns de-duplication state. No client writes allowed.
+      match /alertState/{alertId} {
+        allow read, write: if false;
+      }
+
       // Video never traverses Firestore: only SDP and ICE candidates.
       match /sessions/{sessionId} {
         allow read, write: if isOwner();
