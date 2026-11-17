@@ -216,6 +216,12 @@ class _DeviceHealthCardState extends State<DeviceHealthCard> {
 
         return Card(
           child: ExpansionTile(
+            // The outer Card draws the boundary. Suppress Flutter's
+            // expanded-only top and bottom lines.
+            shape: const RoundedRectangleBorder(side: BorderSide.none),
+            collapsedShape: const RoundedRectangleBorder(
+              side: BorderSide.none,
+            ),
             leading: Icon(
               online && risk == HealthLevel.normal
                   ? Icons.check_circle_outline
