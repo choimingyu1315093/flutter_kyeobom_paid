@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'kyeobom_design.dart';
 import 'kyeobom_viewer_ads.dart';
+import 'device_health.dart';
 
 /// Figma screen 3: nearly black waiting surface; camera and mic are
 /// physically OFF in standby. Native wakelock/lifecycle remain in main.dart.
@@ -268,6 +269,8 @@ class KyeobomViewerView extends StatelessWidget {
           if (MediaQuery.sizeOf(context).height < 740 &&
               !watching && !busy && !leaving)
             const KyeobomViewerHomeAd(),
+          const SizedBox(height: 14),
+          const DeviceHealthCard(),
           const SizedBox(height: 14),
           Container(
             width: double.infinity,
