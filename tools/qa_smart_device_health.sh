@@ -17,6 +17,10 @@ flutter pub get
 # diagnostics must still fail the command.
 flutter analyze --no-fatal-infos
 flutter test
+echo "== Firebase health push policy QA =="
+node --check functions/index.js
+node --check functions/health_alert_policy.js
+node --test functions/test/health_alert_policy.test.js
 flutter build apk --release
 
 if [[ "${1:-}" == "--ios" ]]; then
