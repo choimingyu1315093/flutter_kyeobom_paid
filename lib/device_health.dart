@@ -71,6 +71,7 @@ class DeviceHealthPublisher {
       await RemoteControl.instance.station
           .collection('telemetry').doc('health').set({
         ...snapshot.toFirestore(),
+        'collectedAt': Timestamp.fromDate(snapshot.collectedAt),
         'lastSeen': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true)).timeout(const Duration(seconds: 10));
       if (!_closed) onSyncError?.call(null);
