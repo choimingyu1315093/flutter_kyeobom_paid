@@ -8,6 +8,21 @@ import 'package:shared_preferences/shared_preferences.dart';
 enum KyeobomAdFormat { native, banner, appOpen, interstitial, rewarded }
 
 abstract final class KyeobomAdPolicy {
+  /// Safe video/audio regression mode. Does NOT touch Firebase or WebRTC.
+  /// Only honored by debug builds; never disables release monetization.
+  static const bool _qaDisableAds =
+      bool.fromEnvironment('KYEOBOM_QA_DISABLE_ADS', defaultValue: false);
+
+  /// Native iOS needs a passing Native Ad Validator review before release.
+  /// Keep it available for an explicit test, not the automatic 50/50 mix.
+  static const bool enableIosNative =
+      bool.fromEnvironment('KYEOBOM_ENABLE_IOS_NATIVE_ADS', defaultValue: false);
+
+  static bool get qaAdsDisabled => kDebugMode && _qaDisableAds;
+
+  static bool nativeAllowed(TargetPlatform platform) =>
+      platform != TargetPlatform.iOS || enableIosNative;
+
   static const bool enableLiveAds =
       bool.fromEnvironment('KYEOBOM_ENABLE_LIVE_ADS', defaultValue: false);
   // Separate experimental gates. Live-video entry NEVER requires an ad.
@@ -89,6 +104,7 @@ abstract final class KyeobomAdPolicy {
     required bool release,
   }) {
     if (!supportsPlatform(platform)) return false;
+    if (qaAdsDisabled) return false; // Debug-only camera QA bypass.
     if (!release) return true; // Google demo units ONLY for QA builds.
     if (!enableLiveAds) return false; // Explicit production opt-in.
     return _valid(
