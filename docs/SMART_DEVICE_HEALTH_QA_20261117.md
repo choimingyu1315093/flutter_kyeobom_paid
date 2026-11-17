@@ -63,3 +63,28 @@ bash tools/qa_smart_device_health.sh --ios
 - 뷰어폰 백그라운드 **푸시 알림**은 Firebase Messaging/Functions 또는 서버 인프라가 필요하므로 이번 코드에는 없음. 대신 앱 내 상태 및 경고 표시 구현. 비용/푸시 토큰 설계를 별도 승인 없이 추가하지 않음
 - 실시간 화질 전환은 카메라 드라이버별 지원 차이 있음. 미지원 시 화면에 표시하고 영상 연결은 유지; 다음 연결에서 저화질 프로필 적용
 - 프로토타입은 같은 계정의 단일 거치폰을 사용한다는 기존 설계를 유지함
+
+## 6. Android Release launch crash: log-proven root cause & targeted fix
+User-provided logcat on 2026-11-17 shows repeated crash **before Flutter engine startup** in
+`androidx.startup.InitializationProvider -> androidx.work.WorkManagerInitializer ->
+androidx.work.impl.WorkDatabase`:
+`Failed to create an instance of androidx.work.impl.WorkDatabase`.
+
+This matches Android Gradle Plugin/R8 shrinking of Room's reflection-instantiated
+`WorkDatabase_Impl` class/constructor brought in transitively by Google Mobile Ads.
+Fix:
+- Add `android/app/proguard-rules.pro` with keep rules narrowly scoped to
+  `androidx.work.impl.WorkDatabase`, `WorkDatabase_Impl`, and Room DB constructors
+- Add `proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")`
+  to the existing **release** build type
+- Keep WorkManager and Ads SDK enabled; no camera/Firestore/Audio/Ad runtime behavior changed
+- QA script fails early if the release safeguard is missing
+
+Verification required on an Android physical device: rebuild the Release APK with
+`flutter build apk --release`, `adb install -r build/app/outputs/flutter-apk/app-release.apk`,
+then tap the installed app icon. Never infer runtime success from `flutter test`
+or successful Gradle build alone. Check `FATAL EXCEPTION` in logcat if crash persists.
+
+No app uninstall / data clearing is necessary for this initial fix. Avoid
+`adb uninstall` unless the user explicitly approves because it removes local app data.
+The fix is not yet device-verified.
