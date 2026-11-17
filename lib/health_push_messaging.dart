@@ -70,6 +70,7 @@ class HealthPushMessaging {
   String _role = 'none';
   int _roleRevision = 0;
   String? _lastMessageId;
+  Future<void> _roleWriteQueue = Future<void>.value();
 
   Future<String> _installationId() =>
       _installationIdFuture ??= _readInstallationId();
@@ -113,21 +114,27 @@ class HealthPushMessaging {
     });
   }
 
-  Future<void> _writeRole(String role, String? token, int revision) async {
-    if (revision != _roleRevision) return;
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) return;
-    final id = await _installationId();
-    if (revision != _roleRevision ||
-        FirebaseAuth.instance.currentUser?.uid != uid) return;
-    final doc = _deviceDoc(uid, id);
-    if (doc == null) return;
-    await doc.set({
-      'role': role,
-      'fcmToken': token,
-      'platform': defaultTargetPlatform.name,
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true)).timeout(const Duration(seconds: 8));
+  Future<void> _writeRole(String role, String? token, int revision) {
+    // Serialize viewer/station writes. A delayed token request must not
+    // overwrite a newer station role and send alerts to the camera itself.
+    final pending = _roleWriteQueue.then((_) async {
+      if (revision != _roleRevision) return;
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid == null) return;
+      final id = await _installationId();
+      if (revision != _roleRevision ||
+          FirebaseAuth.instance.currentUser?.uid != uid) return;
+      final doc = _deviceDoc(uid, id);
+      if (doc == null) return;
+      await doc.set({
+        'role': role,
+        'fcmToken': token,
+        'platform': defaultTargetPlatform.name,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true)).timeout(const Duration(seconds: 8));
+    });
+    _roleWriteQueue = pending.catchError((Object _) {});
+    return pending;
   }
 
   Future<void> _registerToken(String token, int revision) async {
@@ -226,9 +233,13 @@ class HealthPushMessaging {
     dismiss();
     try {
       final uid = FirebaseAuth.instance.currentUser?.uid;
+      await _roleWriteQueue;
       if (uid != null) {
         final id = await _installationId();
-        await _deviceDoc(uid, id)?.delete().timeout(const Duration(seconds: 5));
+        final doc = _deviceDoc(uid, id);
+        if (doc != null) {
+          await doc.delete().timeout(const Duration(seconds: 5));
+        }
       }
     } catch (_) {}
     try {
