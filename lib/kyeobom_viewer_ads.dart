@@ -482,8 +482,12 @@ class _KyeobomViewerHomeAdState extends State<KyeobomViewerHomeAd> {
       return const SizedBox.shrink();
     }
     return Padding(
-      padding: const EdgeInsets.only(top: 20),
+      padding: const EdgeInsets.only(top: 12),
       child: Column(
+        // This widget is mounted as Scaffold.bottomNavigationBar on taller
+        // phones. MainAxisSize.max used to consume the whole viewport,
+        // hiding the home body and its "실시간 보기" button behind the ad.
+        mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           if (_rewardSuppressesHome)
@@ -510,25 +514,28 @@ class _KyeobomViewerHomeAdState extends State<KyeobomViewerHomeAd> {
                 border: Border.all(color: KyeobomPalette.border),
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  // An iOS AdWidget must get a concrete width and height.
-                  // Never let the UIKit platform view grow to screen size.
-                  final native = _native;
-                  final banner = _banner;
-                  final available = constraints.maxWidth.isFinite
-                      ? constraints.maxWidth : 400.0;
-                  final width = native != null
-                      ? available.clamp(0.0, 400.0).toDouble()
-                      : banner!.size.width.toDouble();
-                  return Center(
-                    child: SizedBox(
-                      width: width,
-                      height: _adHeight.toDouble(),
-                      child: AdWidget(ad: native ?? banner!),
-                    ),
-                  );
-                },
+              // Explicit vertical bounds prevent the platform ad layout
+              // from expanding the bottom navigation to screen height.
+              child: SizedBox(
+                height: _adHeight.toDouble(),
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final native = _native;
+                    final banner = _banner;
+                    final available = constraints.maxWidth.isFinite
+                        ? constraints.maxWidth : 400.0;
+                    final width = native != null
+                        ? available.clamp(0.0, 400.0).toDouble()
+                        : banner!.size.width.toDouble();
+                    return Center(
+                      child: SizedBox(
+                        width: width,
+                        height: _adHeight.toDouble(),
+                        child: AdWidget(ad: native ?? banner!),
+                      ),
+                    );
+                  },
+                ),
               ),
             ),
           ],
