@@ -57,6 +57,13 @@
 			</array>
 		</dict>
 	</dict>
+	<!-- FlutterFire Messaging: permit remote notification delivery when app
+	     is backgrounded. Does not enable background camera capture. -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>fetch</string>
+		<string>remote-notification</string>
+	</array>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>
