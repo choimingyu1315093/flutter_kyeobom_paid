@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'kyeobom_design.dart';
 import 'kyeobom_viewer_ads.dart';
 import 'device_health.dart';
+import 'health_push_messaging.dart';
 
 /// Figma screen 3: nearly black waiting surface; camera and mic are
 /// physically OFF in standby. Native wakelock/lifecycle remain in main.dart.
@@ -304,6 +305,18 @@ class KyeobomViewerView extends StatelessWidget {
             const KyeobomViewerHomeAd(),
           const SizedBox(height: 14),
           const DeviceHealthCard(),
+          ValueListenableBuilder<String?>(
+            valueListenable: HealthPushMessaging.instance.setupWarning,
+            builder: (context, warning, _) => warning == null
+                ? const SizedBox.shrink()
+                : Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text(
+                      warning, style: const TextStyle(
+                        color: Colors.deepOrange, fontSize: 11),
+                    ),
+                  ),
+          ),
           const SizedBox(height: 14),
           Container(
             width: double.infinity,
