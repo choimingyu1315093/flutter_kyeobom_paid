@@ -35,6 +35,14 @@ void main() {
     ), isNull);
   });
 
+  test('iOS native stays isolated until explicit policy QA opt-in', () {
+    expect(KyeobomAdPolicy.nativeAllowed(TargetPlatform.android), isTrue);
+    expect(KyeobomAdPolicy.nativeAllowed(TargetPlatform.iOS),
+        KyeobomAdPolicy.enableIosNative);
+    expect(KyeobomAdPolicy.enableIosNative, isFalse);
+    expect(KyeobomAdPolicy.qaAdsDisabled, isFalse);
+  });
+
   test('A-B assignment respects banner/native QA override', () {
     expect(KyeobomAdPolicy.choose(
       nativeAssigned: true, override: 'auto',
