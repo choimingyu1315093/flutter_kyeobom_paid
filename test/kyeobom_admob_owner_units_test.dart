@@ -54,11 +54,30 @@ void main() {
     }
   });
 
-  test('release ads stay disabled without real app IDs and explicit consent',
-      () {
+  test('both real app IDs are distinct and match owner ad unit IDs', () {
+    expect(KyeobomAdPolicy.androidAppId,
+        'ca-app-pub-5893975529562336~4819053037');
+    expect(KyeobomAdPolicy.iosAppId,
+        'ca-app-pub-5893975529562336~6718137266');
+    expect(KyeobomAdPolicy.androidAppId,
+        isNot(KyeobomAdPolicy.iosAppId));
+    const ownerPrefix = 'ca-app-pub-5893975529562336';
+    for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
+      final appId = platform == TargetPlatform.android
+          ? KyeobomAdPolicy.androidAppId
+          : KyeobomAdPolicy.iosAppId;
+      expect(appId, startsWith('$ownerPrefix~'));
+      for (final format in KyeobomAdFormat.values) {
+        final adId = KyeobomAdPolicy.productionUnit(
+          platform: platform, format: format,
+        );
+        expect(adId, startsWith('$ownerPrefix/'));
+      }
+    }
+  });
+
+  test('release remains opt-in even with real app and ad unit IDs', () {
     expect(KyeobomAdPolicy.enableLiveAds, isFalse);
-    expect(KyeobomAdPolicy.androidAppId, isEmpty);
-    expect(KyeobomAdPolicy.iosAppId, isEmpty);
     for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
       expect(KyeobomAdPolicy.isEnabled(
         platform: platform, release: true,
