@@ -21,6 +21,7 @@ import 'kyeobom_auth_screens.dart';
 import 'kyeobom_station_start_dialog.dart';
 import 'homecam_session_housekeeping.dart';
 import 'device_health.dart';
+import 'device_health_policy.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -171,6 +172,7 @@ class _StationScreenState extends State<StationScreen>
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _commands;
   DeviceHealthPublisher? _health;
   String? _healthSyncError;
+  DeviceHealthSnapshot? _latestHealth;
   Future<void> _commandQueue = Future<void>.value();
 
   String _status = '연결 대기 준비 중';
@@ -211,17 +213,49 @@ class _StationScreenState extends State<StationScreen>
     unawaited(_enterWaiting());
     unawaited(_connectCommands());
     _health = DeviceHealthPublisher(
-      onThermalWarning: (warning) {
-        if (mounted && warning) {
-          setState(() => _status = '발열 높음 · 통풍 상태를 확인하세요');
-        }
-      },
+      onSample: _onHealthSample,
       onSyncError: (code) {
         if (!mounted || _healthSyncError == code) return;
         setState(() => _healthSyncError = code);
       },
     );
     _health!.start();
+  }
+
+  void _onHealthSample(DeviceHealthSnapshot snapshot) {
+    if (!mounted || _leaving) return;
+    setState(() => _latestHealth = snapshot);
+
+    if (snapshot.shouldStopVideo && _rtc.isRunning) {
+      _commandQueue = _commandQueue.then((_) async {
+        if (!mounted || _leaving || !_rtc.isRunning) return;
+        await _finishStream();
+        if (mounted) setState(() => _status = snapshot.warning);
+      }).catchError((Object error) {
+        if (mounted) setState(() => _status = '기기 보호 처리 오류: $error');
+      });
+    } else if (_streaming && _rtc.isRunning &&
+        _rtc.isVideoReduced != snapshot.shouldReduceVideo) {
+      // Serialized with start/stop requests: quality adjustment does not
+      // create a new peer, restart the camera, or touch the microphone.
+      _commandQueue = _commandQueue.then((_) async {
+        if (!mounted || _leaving || !_rtc.isRunning) return;
+        final applied = await _rtc.setReducedQuality(
+          snapshot.shouldReduceVideo,
+        );
+        if (mounted && applied) {
+          setState(() => _status = snapshot.shouldReduceVideo
+              ? '배터리·발열 보호 · 저화질 송출 중'
+              : '기기 상태 회복 · 기본 화질로 복귀');
+        }
+        if (mounted && !applied) {
+          setState(() => _status =
+              '기기에서 실시간 화질 전환을 지원하지 않아요');
+        }
+      }).catchError((Object error) {
+        if (mounted) setState(() => _status = '품질 조절 오류: $error');
+      });
+    }
   }
 
   Future<void> _enterWaiting() async {
@@ -320,6 +354,24 @@ class _StationScreenState extends State<StationScreen>
     }
     if (sessionId.isEmpty) return;
 
+    // Safety gate before opening a new camera. No camera or microphone is
+    // ever started when the OS reports critical thermal/battery conditions.
+    final risk = _latestHealth;
+    if (risk != null && risk.shouldStopVideo) {
+      try {
+        await RemoteControl.instance.session(sessionId).set({
+          'state': 'ended',
+          'endedAt': FieldValue.serverTimestamp(),
+          'healthReason': risk.warning,
+        }, SetOptions(merge: true));
+        await RemoteControl.instance.acknowledge(id, 'health_protection');
+      } catch (_) {
+        // Never open the camera if protection signalling fails.
+      }
+      if (mounted) setState(() => _status = risk.warning);
+      return;
+    }
+
     try {
       if (mounted) setState(() => _status = '원격 연결 준비 중');
       if (_rtc.isRunning && _rtc.sessionId != sessionId) {
@@ -327,7 +379,10 @@ class _StationScreenState extends State<StationScreen>
         await _microphone.disable();
         await _rtc.end();
       }
-      await _rtc.startStation(sessionId);
+      await _rtc.startStation(
+        sessionId,
+        reducedQuality: _latestHealth?.shouldReduceVideo ?? false,
+      );
       if (!mounted || _leaving || !_foreground) {
         await _rtc.end();
         return;
@@ -388,7 +443,7 @@ class _StationScreenState extends State<StationScreen>
     if (_leaving) return;
     setState(() => _leaving = true);
     await _commands?.cancel();
-    await _health?.stop();
+    _health?.stop();
     try {
       await _microphone.disable();
       await _rtc.end();
@@ -415,15 +470,16 @@ class _StationScreenState extends State<StationScreen>
           if (mounted) setState(() => _status = '종료 오류: $error');
         },
       );
-    } else if (_foreground && !_streaming && mounted) {
-      setState(() => _status = '연결 대기 중');
+    } else if (_foreground && mounted) {
+      unawaited(_health?.refresh());
+      if (!_streaming) setState(() => _status = '연결 대기 중');
     }
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    unawaited(_health?.stop());
+    _health?.stop();
     unawaited(_commands?.cancel());
     unawaited(_microphone.disable());
     unawaited(_rtc.end(notifyRemote: !_leaving));
@@ -445,6 +501,10 @@ class _StationScreenState extends State<StationScreen>
           microphoneBusy: _microphoneBusy,
           microphoneMessage: _microphoneMessage,
           healthSyncError: _healthSyncError,
+          healthSummary: _latestHealth == null
+              ? '기기 상태 확인 중'
+              : '배터리 ${_latestHealth!.batteryLabel} · 발열 ${_latestHealth!.heatLabel}',
+          healthWarning: _latestHealth?.warning,
           autoMicrophoneEnabled: _micAutoEnabled,
           autoMicrophoneBusy: _micSettingsBusy,
           onAutoMicrophoneChanged: (enabled) =>
