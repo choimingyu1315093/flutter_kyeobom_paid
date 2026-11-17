@@ -22,6 +22,7 @@ import 'kyeobom_station_start_dialog.dart';
 import 'homecam_session_housekeeping.dart';
 import 'device_health.dart';
 import 'device_health_policy.dart';
+import 'health_push_messaging.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -45,6 +46,16 @@ class HomeCameraApp extends StatelessWidget {
           title: '켜봄',
         debugShowCheckedModeBanner: false,
         theme: KyeobomTheme.light,
+        // Render real FCM warnings above the landscape viewer video.
+        builder: (context, child) => Stack(
+          children: [
+            if (child != null) child,
+            const Positioned(
+              top: 0, left: 0, right: 0,
+              child: HealthPushForegroundBanner(),
+            ),
+          ],
+        ),
         routes: {'/roles': (_) => const RoleSelectionScreen()},
         home: Firebase.apps.isEmpty
             ? const Scaffold(
@@ -86,6 +97,7 @@ class RoleSelectionScreen extends StatelessWidget {
           tooltip: '로그아웃',
           icon: const Icon(Icons.logout_rounded, size: 19),
           onPressed: () async {
+            await HealthPushMessaging.instance.signOut();
             await FirebaseAuth.instance.signOut();
             if (!context.mounted) return;
             Navigator.of(context).pushReplacement(
@@ -189,6 +201,7 @@ class _StationScreenState extends State<StationScreen>
   @override
   void initState() {
     super.initState();
+    unawaited(HealthPushMessaging.instance.activateStation());
     _microphone = StationMicrophone(onState: (capturing, message) {
       if (!mounted) return;
       setState(() {
@@ -547,6 +560,7 @@ class _ViewerScreenState extends State<ViewerScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    unawaited(HealthPushMessaging.instance.activateViewer());
     _viewerAudio = ViewerAudio(onState: (receiving, message) {
       if (!mounted) return;
       if (_remoteAudioOn != receiving || _remoteAudioMessage != message) {
