@@ -66,16 +66,38 @@ Google 공식 안내:
 **정확한 Validator 지적 내용이 없는 현시점에는
 네이티브 광고 오류 해결 완료라고 주장할 수 없음.**
 
+## 2026-11-17 추가: 로컬 viewer_ads.dart 충돌 해결
+
+이전 버전 적용 도구는 `git apply --check`에서
+`lib/kyeobom_viewer_ads.dart:380 patch does not apply`를 보고하고
+**어떤 파일도 수정하지 않고 종료**했다.
+
+새 버전 도구 `tools/apply_admob_native_qa_locally.py`는 다음과 같다.
+- GitHub 기준 브랜치, QA 브랜치, Mac의 현 파일을 **3방향 병합**
+- 3방향 병합 결과가 정상일 때만 적용
+- `viewer_ads.dart`만 충돌하면 기존 코드를 통째로 대체하지 않고,
+  광고 크기 보호 로직과 네이티브 영역 높이만 **선택적으로 삽입**
+- 그 외 충돌이 있으면 변경하지 않고 종료
+- 적용 성공 전 기존 파일 전체 Desktop 백업
+- 앱 아이콘, Firebase 파일, Xcode/Gradle 설정, 원격제어 등 미변경
+
+예전 스크립트를 다시 실행하면 같은 오류가 나므로
+`git fetch origin` 후 **새 스크립트 파일만 재다운로드**하고
+다시 테스트한다. 최신 실행 명령은 아래 절 참조.
+
+---
+
 ## Mac 로컬 파일 보호 + 테스트
 
 Mac에는 사용자가 직접 넣은 Android/iOS 아이콘, 새 Firebase 설정,
 Xcode 서명, `lib/firebase_options.dart` 등이 Git 미추적 상태로 존재.
 **브랜치 switch/reset/clean 없이 기존 디렉터리에서 선택적 패치**.
 
-새 안전 적용 도구는 `git apply --check`로 현 코드와 충돌 여부를
-**먼저 검사**한다. 충돌 시 아무 파일도 수정하지 않고 종료.
-성공하면 기존 4개 광고 관련 파일을 Desktop에 먼저 백업한 뒤
-**변경된 코드 조각만 적용**한다. 아이콘/Firebase/서명 파일은 제외.
+새 안전 적용 도구는 Git 3방향 병합으로 로컬 코드와 충돌 여부를
+**먼저 검사**한다. `viewer_ads.dart`만 충돌할 경우 광고 영역의
+제한 로직을 안전하게 선택 적용한다. 다른 충돌은 수정 없이 종료한다.
+성공 시 기존 4개 광고 관련 파일을 Desktop에 백업한다.
+아이콘/Firebase/서명 파일은 제외.
 
 ```bash
 cd ~/Flutter/flutter_home_camera
