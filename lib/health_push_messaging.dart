@@ -61,6 +61,8 @@ class HealthPushMessaging {
   static final instance = HealthPushMessaging._();
 
   final ValueNotifier<HealthPushAlert?> foregroundAlert = ValueNotifier(null);
+  /// Visible only when the viewer cannot register for notifications.
+  final ValueNotifier<String?> setupWarning = ValueNotifier(null);
   StreamSubscription<RemoteMessage>? _messages;
   StreamSubscription<String>? _tokenChanges;
   Timer? _hideTimer;
@@ -132,7 +134,11 @@ class HealthPushMessaging {
     if (revision != _roleRevision || _role != 'viewer') return;
     try {
       await _writeRole('viewer', token, revision);
+      if (revision == _roleRevision) setupWarning.value = null;
     } catch (error) {
+      if (revision == _roleRevision) {
+        setupWarning.value = '위험 알림 기기 등록에 실패했어요. 인터넷 연결을 확인해 주세요.';
+      }
       if (kDebugMode) debugPrint('[kyeobom/push] token registration unavailable: $error');
     }
   }
@@ -142,6 +148,7 @@ class HealthPushMessaging {
         FirebaseAuth.instance.currentUser == null) return;
     _role = 'viewer';
     final revision = ++_roleRevision;
+    setupWarning.value = null;
     try {
       _startListeners();
       // The in-app banner handles the foreground case, including landscape
@@ -153,6 +160,7 @@ class HealthPushMessaging {
         alert: true, badge: true, sound: true);
       if (revision != _roleRevision) return;
       if (settings.authorizationStatus == AuthorizationStatus.denied) {
+        setupWarning.value = '위험 알림을 받으려면 기기 설정에서 알림 권한을 허용해 주세요.';
         await _writeRole('viewer', null, revision);
         return;
       }
@@ -168,6 +176,9 @@ class HealthPushMessaging {
           await Future<void>.delayed(const Duration(seconds: 2));
         }
         if (apns == null || revision != _roleRevision) {
+          if (revision == _roleRevision) {
+            setupWarning.value = 'iPhone 푸시 등록 실패 · APNs 권한·서명을 확인해 주세요.';
+          }
           await _writeRole('viewer', null, revision);
           return;
         }
@@ -175,10 +186,19 @@ class HealthPushMessaging {
 
       final token = await FirebaseMessaging.instance.getToken();
       if (revision != _roleRevision) return;
+      if (token == null || token.isEmpty) {
+        setupWarning.value = '위험 알림 토큰을 발급받지 못했어요. 다시 연결해 주세요.';
+        await _writeRole('viewer', null, revision);
+        return;
+      }
       await _writeRole('viewer', token, revision);
+      if (revision == _roleRevision) setupWarning.value = null;
     } catch (error) {
       // Missing APNs key/permission or offline Firestore must not interrupt
       // video, audio, station setup or advertising.
+      if (revision == _roleRevision) {
+        setupWarning.value = '위험 알림 등록 실패 · Firebase/알림 권한을 확인해 주세요.';
+      }
       if (kDebugMode) debugPrint('[kyeobom/push] viewer registration failed: $error');
     }
   }
@@ -188,6 +208,7 @@ class HealthPushMessaging {
         FirebaseAuth.instance.currentUser == null) return;
     _role = 'station';
     final revision = ++_roleRevision;
+    setupWarning.value = null;
     dismiss();
     try {
       // Clear any previous viewer registration on this physical phone.
@@ -201,6 +222,7 @@ class HealthPushMessaging {
   Future<void> signOut() async {
     _role = 'none';
     ++_roleRevision;
+    setupWarning.value = null;
     dismiss();
     try {
       final uid = FirebaseAuth.instance.currentUser?.uid;
