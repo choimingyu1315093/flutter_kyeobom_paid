@@ -20,8 +20,15 @@ abstract final class KyeobomAdPolicy {
 
   static bool get qaAdsDisabled => kDebugMode && _qaDisableAds;
 
+  // iOS native layouts have not yet passed the owner's on-device validator.
+  // The opt-in is strictly a DEBUG diagnostic, never a release monetization gate.
   static bool nativeAllowed(TargetPlatform platform) =>
-      platform != TargetPlatform.iOS || enableIosNative;
+      platform != TargetPlatform.iOS || (kDebugMode && enableIosNative);
+
+  /// Move the iOS native QA ad into a scrollable area rather than keeping it
+  /// flush to the bottom edge, where the SDK's "See issues" popup is cut off.
+  static bool get iosNativeQa =>
+      kDebugMode && enableIosNative && formatOverride == 'native';
 
   static const bool enableLiveAds =
       bool.fromEnvironment('KYEOBOM_ENABLE_LIVE_ADS', defaultValue: false);
