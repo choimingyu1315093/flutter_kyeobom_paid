@@ -3,6 +3,40 @@
 작업 브랜치: `feature/admob-banner-branding-ids-20261117`
 기준: `fix/ios-native-ad-validator-viewer-20261117`
 
+## 2026-11-17 추가: 사용자가 아이콘을 직접 복원함
+
+기존 앱 아이콘은 사용자가 직접 Android/iOS에 다시 적용했으므로
+**아이콘 생성 스크립트를 실행할 필요가 없음.**
+작업은 **Android/iOS 식별자만 변경**하는 것으로 제한.
+
+Mac 로컬 Firebase 플러그인/서명 설정을 보존하고 Kotlin 메인 액티비티까지
+동시에 옮기도록 `normalize_kyeobom_local_identifiers.py`를 개선했다.
+현재 브랜치로 checkout/병합할 필요 없이 아래 명령어만 실행하면 됨.
+
+```bash
+cd ~/Flutter/flutter_home_camera
+git fetch origin
+mkdir -p tools
+git show origin/feature/admob-banner-branding-ids-20261117:tools/normalize_kyeobom_local_identifiers.py \
+  > tools/normalize_kyeobom_local_identifiers.py
+git show origin/feature/admob-banner-branding-ids-20261117:tools/check_kyeobom_platform_identity.py \
+  > tools/check_kyeobom_platform_identity.py
+python3 tools/normalize_kyeobom_local_identifiers.py
+python3 tools/check_kyeobom_platform_identity.py
+```
+
+스크립트는 실행 전 기존 Gradle/Xcode/Kotlin 파일을 Desktop에 백업하며,
+`assets/`, `mipmap-`, `AppIcon.appiconset`, Firebase JSON/plist,
+`lib/remote_control.dart` 등을 수정하지 않는다.
+`check` 스크립트는 앱 아이콘 **최종 출력 PNG**를 점검하며,
+이전에 사용한 원본 `assets/branding/app_icon_real.png` 존재를 요구하지 않는다.
+
+**주의:** Firebase 앱 식별자가 이전 값이면 인증/빌드에 문제가 생길 수 있으므로,
+같은 Firebase 프로젝트에 `com.mingyu.kyeobom` Android/iOS 앱을 추가하고
+새 JSON/plist를 다운로드한 뒤 FlutterFire 구성을 갱신해야 한다.
+
+---
+
 ## 소스 코드에 반영 완료
 
 - 뷰어 홈의 배너를 `getLargeAnchoredAdaptiveBannerAdSize()`에서
