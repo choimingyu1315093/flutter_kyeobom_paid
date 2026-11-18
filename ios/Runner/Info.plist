@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>거치폰의 마이크 켜기 버튼을 누른 경우에만 주변 소리를 연결된 뷰어폰으로 전송합니다. 기본값은 꺼짐이며 녹음하지 않습니다.</string>
+	<string>거치폰에서 마이크를 켤 때 주변 소리를 연결된 뷰어폰으로 전송하거나, 베이비 모드를 직접 켰을 때 소리 크기 변화만 기기에서 분석합니다. 두 기능은 기본적으로 꺼져 있으며, 베이비 모드는 오디오를 저장하거나 전송하지 않습니다.</string>
 	<!-- Permit Firebase Auth/Firestore emulator access to local LAN IPs.
 	     ATS remains enabled for nonlocal/public internet traffic. -->
 	<key>NSAppTransportSecurity</key>
