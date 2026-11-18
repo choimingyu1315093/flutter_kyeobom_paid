@@ -38,7 +38,7 @@ before(async () => {
       // Dedicated rules-test instance. Never target the device QA port 8080.
       host: '127.0.0.1',
       port: 8281,
-      rules: readFileSync(resolve('../../firestore.rules'), 'utf8'),
+      rules: readFileSync(resolve(process.env.KYEOBOM_TEST_RULES_PATH || '../../firestore.rules'), 'utf8'),
     },
   });
 });
