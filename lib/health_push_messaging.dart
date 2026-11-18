@@ -9,6 +9,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'remote_control.dart';
+
 /// Only the three critical station-health notifications requested by users.
 /// These are FCM messages, not local simulated threshold warnings.
 class HealthPushAlert {
@@ -53,9 +55,9 @@ class HealthPushAlert {
   bool get critical => type == 'thermal_critical';
 }
 
-/// One device installation has one immutable ID. A station must not receive
-/// its own FCM messages even though both phones share a Firebase Auth UID.
-/// Viewer role registration persists if the app goes into the background.
+/// One app installation has a stable ID, scoped to the current Auth UID.
+/// Station and viewer use DISTINCT Firebase principals. Only approved viewers
+/// can register FCM tokens; server filters registration by station.viewerUid.
 class HealthPushMessaging {
   HealthPushMessaging._();
   static final instance = HealthPushMessaging._();
@@ -70,6 +72,7 @@ class HealthPushMessaging {
   String _role = 'none';
   int _roleRevision = 0;
   String? _lastMessageId;
+  String? _registeredStationUid;
   Future<void> _roleWriteQueue = Future<void>.value();
 
   Future<String> _installationId() =>
@@ -87,10 +90,21 @@ class HealthPushMessaging {
     return id;
   }
 
-  DocumentReference<Map<String, dynamic>>? _deviceDoc(String uid, String id) {
+  DocumentReference<Map<String, dynamic>>? _deviceDoc(
+    String stationUid, String installationId, String authUid,
+  ) {
     if (Firebase.apps.isEmpty) return null;
     return FirebaseFirestore.instance.collection('homecamStations')
-        .doc(uid).collection('devices').doc(id);
+        .doc(stationUid).collection('devices')
+        .doc('$installationId-$authUid');
+  }
+
+  String? _currentStationUid() {
+    try {
+      return RemoteControl.instance.stationUid;
+    } catch (_) {
+      return null;
+    }
   }
 
   void _startListeners() {
@@ -101,7 +115,8 @@ class HealthPushMessaging {
       }
       final alert = HealthPushAlert.fromData(message.data);
       if (alert == null) return;
-      if (FirebaseAuth.instance.currentUser?.uid != alert.uid) return;
+      if (FirebaseAuth.instance.currentUser?.isAnonymous != false ||
+          _currentStationUid() != alert.uid) return;
       _lastMessageId = message.messageId;
       foregroundAlert.value = alert;
       _hideTimer?.cancel();
@@ -120,18 +135,26 @@ class HealthPushMessaging {
     final pending = _roleWriteQueue.then((_) async {
       if (revision != _roleRevision) return;
       final uid = FirebaseAuth.instance.currentUser?.uid;
-      if (uid == null) return;
+      final stationUid = _currentStationUid();
+      if (uid == null || stationUid == null) return;
+      if (role == 'viewer' &&
+          FirebaseAuth.instance.currentUser?.isAnonymous != false) return;
+      if (role == 'station' &&
+          FirebaseAuth.instance.currentUser?.isAnonymous != true) return;
       final id = await _installationId();
       if (revision != _roleRevision ||
-          FirebaseAuth.instance.currentUser?.uid != uid) return;
-      final doc = _deviceDoc(uid, id);
+          FirebaseAuth.instance.currentUser?.uid != uid ||
+          _currentStationUid() != stationUid) return;
+      final doc = _deviceDoc(stationUid, id, uid);
       if (doc == null) return;
       await doc.set({
         'role': role,
+        'authUid': uid,
         'fcmToken': token,
         'platform': defaultTargetPlatform.name,
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true)).timeout(const Duration(seconds: 8));
+      if (role == 'viewer') _registeredStationUid = stationUid;
     });
     _roleWriteQueue = pending.catchError((Object _) {});
     return pending;
@@ -152,7 +175,8 @@ class HealthPushMessaging {
 
   Future<void> activateViewer() async {
     if (Firebase.apps.isEmpty ||
-        FirebaseAuth.instance.currentUser == null) return;
+        FirebaseAuth.instance.currentUser?.isAnonymous != false ||
+        _currentStationUid() == null) return;
     _role = 'viewer';
     final revision = ++_roleRevision;
     setupWarning.value = null;
@@ -214,7 +238,7 @@ class HealthPushMessaging {
 
   Future<void> activateStation() async {
     if (Firebase.apps.isEmpty ||
-        FirebaseAuth.instance.currentUser == null) return;
+        FirebaseAuth.instance.currentUser?.isAnonymous != true) return;
     _role = 'station';
     final revision = ++_roleRevision;
     setupWarning.value = null;
@@ -235,14 +259,16 @@ class HealthPushMessaging {
     dismiss();
     try {
       final uid = FirebaseAuth.instance.currentUser?.uid;
+      final stationUid = _registeredStationUid ?? _currentStationUid();
       await _roleWriteQueue;
-      if (uid != null) {
+      if (uid != null && stationUid != null) {
         final id = await _installationId();
-        final doc = _deviceDoc(uid, id);
+        final doc = _deviceDoc(stationUid, id, uid);
         if (doc != null) {
           await doc.delete().timeout(const Duration(seconds: 5));
         }
       }
+      _registeredStationUid = null;
     } catch (_) {}
     try {
       await FirebaseMessaging.instance.deleteToken();
