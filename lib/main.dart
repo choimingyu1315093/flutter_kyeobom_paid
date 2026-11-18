@@ -30,6 +30,7 @@ import 'device_health_policy.dart';
 import 'health_push_messaging.dart';
 import 'event_recording_controller.dart';
 import 'event_clips_screen.dart';
+import 'baby_sound_monitor.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -305,6 +306,13 @@ class _StationScreenState extends State<StationScreen>
   bool _eventBusy = false;
   bool _eventRecording = false;
   String? _eventStatus;
+  late final BabySoundMonitor _babySound;
+  late final Future<void> _babySettingsReady;
+  static const _babyAutoKey = 'station_baby_sound_opt_in_v1';
+  bool _babyEnabled = false;
+  bool _babyBusy = false;
+  String? _babyStatus;
+  int _babyEvents = 0;
   Future<void> _commandQueue = Future<void>.value();
 
   String _status = '연결 대기 준비 중';
@@ -334,6 +342,15 @@ class _StationScreenState extends State<StationScreen>
       },
     );
     _eventSettingsReady = _loadEventSetting();
+    _babySound = BabySoundMonitor(
+      onStatus: (status) {
+        if (mounted && !_leaving) setState(() => _babyStatus = status);
+      },
+      onDetection: (count) {
+        if (mounted && !_leaving) setState(() => _babyEvents = count);
+      },
+    );
+    _babySettingsReady = _loadBabySetting();
     _microphone = StationMicrophone(onState: (capturing, message) {
       if (!mounted) return;
       setState(() {
@@ -367,6 +384,64 @@ class _StationScreenState extends State<StationScreen>
     _health!.start();
   }
 
+
+
+  Future<void> _loadBabySetting() async {
+    try {
+      final enabled = await _micPreferences.getBool(_babyAutoKey) ?? false;
+      _babySound.setEnabled(enabled);
+      if (mounted) setState(() => _babyEnabled = enabled);
+    } catch (error) {
+      if (mounted) setState(() => _babyStatus = '베이비 모드 설정 읽기 오류: $error');
+    }
+  }
+
+  Future<void> _resumeBabyMonitoring() async {
+    if (!mounted || _leaving || !_foreground || _streaming ||
+        _rtc.isRunning || !_babyEnabled || !_babySound.enabled ||
+        _latestHealth?.shouldReduceVideo == true ||
+        _latestHealth?.shouldStopVideo == true) return;
+    try {
+      await _babySound.start();
+      if (mounted) setState(() {});
+    } catch (error) {
+      if (mounted) {
+        setState(() => _babyStatus = '베이비 소리 감지 시작 실패: $error');
+      }
+    }
+  }
+
+  Future<void> _setBabyEnabled(bool enabled) async {
+    if (_babyBusy || _leaving) return;
+    setState(() => _babyBusy = true);
+    try {
+      // Permission is requested ONLY after deliberate station-side opt-in.
+      // The temporary WebRTC permission track is released immediately.
+      if (enabled) await StationMicrophone.preparePermission();
+      _babySound.setEnabled(enabled);
+      if (!enabled) await _babySound.stop();
+      await _micPreferences.setBool(_babyAutoKey, enabled);
+      if (mounted) setState(() {
+        _babyEnabled = enabled;
+        _babyStatus = enabled
+            ? (_streaming
+                ? '영상 시청 중 감지 일시중지 · 대기 복귀 시 자동 재개'
+                : '베이비 모드 준비 중 · 소리 변화만 감지합니다')
+            : '베이비 모드 OFF · 대기 중 마이크 사용 안 함';
+      });
+      if (enabled) await _resumeBabyMonitoring();
+    } catch (error) {
+      _babySound.setEnabled(false);
+      try { await _babySound.stop(); } catch (_) {}
+      try { await _micPreferences.setBool(_babyAutoKey, false); } catch (_) {}
+      if (mounted) setState(() {
+        _babyEnabled = false;
+        _babyStatus = '베이비 모드 실행 실패: $error';
+      });
+    } finally {
+      if (mounted) setState(() => _babyBusy = false);
+    }
+  }
 
   Future<void> _loadEventSetting() async {
     try {
@@ -419,6 +494,11 @@ class _StationScreenState extends State<StationScreen>
   void _onHealthSample(DeviceHealthSnapshot snapshot) {
     if (!mounted || _leaving) return;
     setState(() => _latestHealth = snapshot);
+    if (snapshot.shouldReduceVideo || snapshot.shouldStopVideo) {
+      unawaited(_babySound.stop().catchError((Object _) {}));
+    } else if (_babyEnabled && !_streaming) {
+      unawaited(_resumeBabyMonitoring());
+    }
     // Recording has a lower priority than thermals, battery and video.
     if (snapshot.shouldReduceVideo) {
       unawaited(_events.stop());
@@ -511,7 +591,9 @@ class _StationScreenState extends State<StationScreen>
     try {
       await _micSettingsReady;
       await _eventSettingsReady;
+      await _babySettingsReady;
       await RemoteControl.instance.startStation();
+      unawaited(_resumeBabyMonitoring());
       if (!mounted || _leaving) return;
       _commands = RemoteControl.instance.watch().listen((snapshot) {
         final data = snapshot.data();
@@ -575,6 +657,11 @@ class _StationScreenState extends State<StationScreen>
 
     try {
       if (mounted) setState(() => _status = '원격 연결 준비 중');
+      // Free the sound-only native mic BEFORE opening the live camera and
+      // any optional WebRTC audio. Detection failure must not block video.
+      try { await _babySound.stop(); } catch (error) {
+        if (mounted) setState(() => _babyStatus = '소리 감지 중지 오류: $error');
+      }
       if (_rtc.isRunning && _rtc.sessionId != sessionId) {
         // Finalize any clip BEFORE the previous camera track is released.
         await _events.stop();
@@ -587,6 +674,7 @@ class _StationScreenState extends State<StationScreen>
       );
       if (!mounted || _leaving || !_foreground) {
         await _rtc.end();
+        unawaited(_resumeBabyMonitoring());
         return;
       }
       setState(() {
@@ -616,6 +704,7 @@ class _StationScreenState extends State<StationScreen>
           _streaming = false;
           _status = '송출 시작 실패: $error';
         });
+        unawaited(_resumeBabyMonitoring());
       }
       await RemoteControl.instance.acknowledge(id, 'error: $error');
     }
@@ -650,6 +739,8 @@ class _StationScreenState extends State<StationScreen>
         _microphoneMessage = null;
         _status = '연결 대기 중';
       });
+      // Resume opt-in listening only once camera/audio tracks are closed.
+      unawaited(_resumeBabyMonitoring());
     }
   }
 
@@ -659,6 +750,7 @@ class _StationScreenState extends State<StationScreen>
     await _commands?.cancel();
     _health?.stop();
     try {
+      await _babySound.stop();
       await _events.stop();
       await _microphone.disable();
       await _rtc.end();
@@ -685,6 +777,7 @@ class _StationScreenState extends State<StationScreen>
         state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached;
     if (background && !_leaving) {
+      unawaited(_babySound.stop().catchError((Object _) {}));
       _health?.stop();
       if (mounted) {
         setState(() => _status = '앱 비활성화 · 영상 송출 중단');
@@ -697,7 +790,10 @@ class _StationScreenState extends State<StationScreen>
     } else if (_foreground && mounted) {
       _health?.start();
       unawaited(_health?.refresh());
-      if (!_streaming) setState(() => _status = '연결 대기 중');
+      if (!_streaming) {
+        setState(() => _status = '연결 대기 중');
+        unawaited(_resumeBabyMonitoring());
+      }
     }
   }
 
@@ -705,6 +801,7 @@ class _StationScreenState extends State<StationScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _health?.stop();
+    unawaited(_babySound.stop().catchError((Object _) {}));
     // Native camera teardown remains deferred; finalize video first.
     unawaited(_events.stop().then((_) => _rtc.end(notifyRemote: !_leaving)));
     unawaited(_commands?.cancel());
@@ -738,6 +835,12 @@ class _StationScreenState extends State<StationScreen>
           onEventRecordingChanged: (enabled) =>
               unawaited(_setEventEnabled(enabled)),
           onViewEventClips: () => unawaited(_openEventClips()),
+          babyEnabled: _babyEnabled,
+          babyBusy: _babyBusy,
+          babyRunning: _babySound.running,
+          babyEventCount: _babyEvents,
+          babyStatus: _babyStatus,
+          onBabyChanged: (enabled) => unawaited(_setBabyEnabled(enabled)),
           autoMicrophoneEnabled: _micAutoEnabled,
           autoMicrophoneBusy: _micSettingsBusy,
           onAutoMicrophoneChanged: (enabled) =>
