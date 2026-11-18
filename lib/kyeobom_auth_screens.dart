@@ -83,9 +83,19 @@ class _LoginScreenState extends State<LoginScreen> {
     if (approved != true || !mounted) return;
     setState(() { busy = true; error = null; });
     try {
+      if (kDebugMode) {
+        debugPrint('[kyeobom/qa] iOS/Android station: anonymous sign-in begin');
+      }
       await RemoteControl.instance.signInStationAnonymously();
+      if (kDebugMode) {
+        debugPrint('[kyeobom/qa] station: anonymous sign-in success; navigate');
+      }
       if (mounted) Navigator.of(context).pushReplacementNamed('/station');
-    } catch (e) {
+    } catch (e, stack) {
+      if (kDebugMode) {
+        debugPrint('[kyeobom/qa] station anonymous sign-in error: $e');
+        debugPrintStack(stackTrace: stack);
+      }
       if (mounted) setState(() => error =
           '거치폰 설정 오류: $e. Firebase Authentication의 익명 로그인을 활성화해 주세요.');
     } finally {
