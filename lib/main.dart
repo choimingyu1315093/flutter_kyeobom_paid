@@ -413,8 +413,10 @@ class _StationScreenState extends State<StationScreen>
   }
 
   Future<void> _setBabyEnabled(bool enabled) async {
-    if (_babyBusy || _leaving || _streaming || _preparingStream ||
-        _rtc.isRunning) return;
+    // Turning OFF is always allowed (withdraw consent immediately).
+    // Turning ON during a live WebRTC session would compete for the mic.
+    if (_babyBusy || _leaving ||
+        (enabled && (_streaming || _preparingStream || _rtc.isRunning))) return;
     setState(() => _babyBusy = true);
     try {
       // Permission is requested ONLY after deliberate station-side opt-in.
