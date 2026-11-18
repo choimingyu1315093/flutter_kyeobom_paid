@@ -1,42 +1,190 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /homecamStations/{uid} {
-      function isOwner() {
-        return request.auth != null && request.auth.uid == uid;
-      }
+    // The camera phone is an anonymous Firebase principal. The viewer is a
+    // distinct email/password principal. A station can approve ONE viewer.
+    function signedIn() {
+      return request.auth != null;
+    }
 
-      allow read, write: if isOwner();
+    function stationIdentity(uid) {
+      return signedIn() &&
+        request.auth.uid == uid &&
+        request.auth.token.firebase.sign_in_provider == 'anonymous';
+    }
 
-      // Station device-health heartbeat. Restrict to the owner and
-      // the single telemetry document used by smart device management.
-      // Parent document permissions do not apply to subcollections.
+    function approvedViewer(stationUid) {
+      return signedIn() &&
+        request.auth.token.firebase.sign_in_provider != 'anonymous' &&
+        exists(/databases/$(database)/documents/homecamStations/$(stationUid)) &&
+        get(/databases/$(database)/documents/homecamStations/$(stationUid))
+          .data.viewerUid == request.auth.uid;
+    }
+
+    match /homecamStations/{stationUid} {
+      allow create: if stationIdentity(stationUid) &&
+        request.resource.data.viewerUid == '' &&
+        request.resource.data.viewerEmail == '';
+
+      allow get: if stationIdentity(stationUid) ||
+        (signedIn() && resource.data.viewerUid == request.auth.uid &&
+         request.auth.token.firebase.sign_in_provider != 'anonymous');
+      allow list: if false;
+
+      // Only the actual camera phone can grant or revoke viewer permissions.
+      // A paired viewer may edit only the remote command envelope.
+      allow update: if stationIdentity(stationUid) ||
+        (approvedViewer(stationUid) &&
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+           'command', 'sessionId', 'commandId', 'updatedAt'
+         ]));
+      allow delete: if stationIdentity(stationUid);
+
+      // Health telemetry belongs to the station, readable by its approved viewer.
+      // Parent document permissions never cascade into these subcollections.
       match /telemetry/health {
-        allow read, write: if isOwner();
+        allow get: if stationIdentity(stationUid) || approvedViewer(stationUid);
+        allow list: if false;
+        allow create, update: if stationIdentity(stationUid) &&
+          request.resource.data.keys().hasOnly([
+            'active', 'battery', 'charging', 'thermal', 'network',
+            'platform', 'risk', 'collectedAt', 'lastSeen'
+          ]);
+        allow delete: if stationIdentity(stationUid);
       }
 
-      // Signed-in owner only. A viewer device writes its FCM token,
-      // and the station device clears its token when switching roles.
+      // FCM registrations are bound to the Auth principal that created them.
+      // A revoked or different viewer cannot alter another viewer's registration.
       match /devices/{deviceId} {
-        allow read, write: if isOwner();
+        function validDeviceData() {
+          return request.resource.data.keys().hasOnly([
+            'role', 'authUid', 'fcmToken', 'platform', 'updatedAt'
+          ]) &&
+          request.resource.data.keys().hasAll([
+            'role', 'authUid', 'fcmToken', 'platform', 'updatedAt'
+          ]) &&
+          request.resource.data.authUid == request.auth.uid &&
+          request.resource.data.platform in ['android', 'iOS'] &&
+          request.resource.data.updatedAt == request.time &&
+          (
+            (stationIdentity(stationUid) &&
+              request.resource.data.role == 'station' &&
+              request.resource.data.fcmToken == null) ||
+            (approvedViewer(stationUid) &&
+              request.resource.data.role == 'viewer' &&
+              (request.resource.data.fcmToken == null ||
+                (request.resource.data.fcmToken is string &&
+                 request.resource.data.fcmToken.size() >= 20 &&
+                 request.resource.data.fcmToken.size() <= 4096)))
+          );
+        }
+
+        allow get: if stationIdentity(stationUid) ||
+          (approvedViewer(stationUid) &&
+           resource.data.authUid == request.auth.uid);
+        allow list: if false;
+        allow create: if validDeviceData();
+        allow update: if validDeviceData() &&
+          resource.data.authUid == request.auth.uid;
+        allow delete: if (stationIdentity(stationUid) ||
+          approvedViewer(stationUid)) &&
+          resource.data.authUid == request.auth.uid;
       }
 
-      // The backend owns de-duplication state. No client writes allowed.
+      // Server Admin SDK only. Prevent clients resetting dedupe state.
       match /alertState/{alertId} {
         allow read, write: if false;
       }
 
-      // Video never traverses Firestore: only SDP and ICE candidates.
+      // Video/audio stay P2P; these docs hold only session SDP/ICE signaling.
+      // Revocation is evaluated on every access, including old session URLs.
       match /sessions/{sessionId} {
-        allow read, write: if isOwner();
-
+        allow get, list, create, update, delete:
+          if stationIdentity(stationUid) || approvedViewer(stationUid);
         match /viewerCandidates/{candidateId} {
-          allow read, write: if isOwner();
+          allow get, list, create, update, delete:
+            if stationIdentity(stationUid) || approvedViewer(stationUid);
         }
         match /stationCandidates/{candidateId} {
-          allow read, write: if isOwner();
+          allow get, list, create, update, delete:
+            if stationIdentity(stationUid) || approvedViewer(stationUid);
         }
       }
+    }
+
+    // Only Firebase Admin verified Google Play calls may grant premium.
+    // A signed-in viewer can inspect their OWN entitlement, never write one.
+    match /homecamEntitlements/{viewerUid} {
+      allow get: if signedIn() &&
+        request.auth.uid == viewerUid &&
+        request.auth.token.firebase.sign_in_provider != 'anonymous';
+      allow list, create, update, delete: if false;
+    }
+
+    // Purchase tokens are private server-side credentials. Clients never read
+    // nor write them, even when their UID matches ownerUid.
+    match /homecamPlayTokens/{tokenHash} {
+      allow read, write: if false;
+    }
+
+    match /homecamPairings/{code} {
+      // Code is high-entropy, generated with a secure RNG. Never enumerate.
+      allow get: if signedIn();
+      allow list: if false;
+      allow create: if signedIn() &&
+        code.matches('^[A-HJ-NP-Z2-9]{10}$') &&
+        stationIdentity(request.resource.data.stationUid) &&
+        exists(/databases/$(database)/documents/homecamStations/$(request.auth.uid)) &&
+        request.resource.data.keys().hasOnly([
+          'stationUid', 'status', 'pendingViewerUid', 'pendingViewerEmail',
+          'expiresAt', 'createdAt'
+        ]) &&
+        request.resource.data.status == 'open' &&
+        request.resource.data.pendingViewerUid == '' &&
+        request.resource.data.pendingViewerEmail == '' &&
+        request.resource.data.expiresAt > request.time &&
+        request.resource.data.expiresAt <= request.time + duration.value(15, 'm');
+
+      // A viewer may only request a pending claim for their own Auth UID/email.
+      // The viewer cannot approve itself, change stationUID, or extend expiry.
+      allow update: if (
+        signedIn() &&
+        request.auth.token.firebase.sign_in_provider != 'anonymous' &&
+        resource.data.status == 'open' &&
+        resource.data.expiresAt > request.time &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status', 'pendingViewerUid', 'pendingViewerEmail'
+        ]) &&
+        request.resource.data.status == 'pending' &&
+        request.resource.data.pendingViewerUid == request.auth.uid &&
+        request.resource.data.pendingViewerEmail == request.auth.token.email
+      ) || (
+        signedIn() &&
+        request.auth.token.firebase.sign_in_provider != 'anonymous' &&
+        resource.data.status == 'pending' &&
+        resource.data.pendingViewerUid == request.auth.uid &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status', 'pendingViewerUid', 'pendingViewerEmail'
+        ]) &&
+        request.resource.data.status == 'open' &&
+        request.resource.data.pendingViewerUid == '' &&
+        request.resource.data.pendingViewerEmail == ''
+      ) || (
+        stationIdentity(resource.data.stationUid) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status', 'pendingViewerUid', 'pendingViewerEmail'
+        ]) &&
+        (
+          (resource.data.status == 'pending' &&
+            request.resource.data.status == 'approved' &&
+            resource.data.expiresAt > request.time) ||
+          (resource.data.status == 'pending' &&
+            request.resource.data.status == 'open' &&
+            request.resource.data.pendingViewerUid == '' &&
+            request.resource.data.pendingViewerEmail == '')
+        )
+      );
+      allow delete: if stationIdentity(resource.data.stationUid);
     }
   }
 }
