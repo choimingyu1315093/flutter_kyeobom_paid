@@ -6,6 +6,10 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+// Generated locally by `flutterfire configure` and excluded from Git.
+// Native default init can fail in an iOS QA build even with a plist present.
+import 'firebase_options.dart';
+
 import 'homecam_emulator_qa.dart';
 
 /// Each station signs in anonymously on its own phone. The viewer signs in
@@ -23,7 +27,9 @@ class RemoteControl {
 
   Future<void> initialize() async {
     if (Firebase.apps.isEmpty) {
-      await Firebase.initializeApp();
+      await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      );
     }
   }
 
