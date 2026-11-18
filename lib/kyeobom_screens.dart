@@ -22,6 +22,7 @@ class KyeobomStationView extends StatelessWidget {
     this.autoMicrophoneEnabled = false,
     this.autoMicrophoneBusy = false,
     this.onAutoMicrophoneChanged,
+    this.onManagePairing,
   });
 
   final String status;
@@ -32,6 +33,7 @@ class KyeobomStationView extends StatelessWidget {
   final VoidCallback onLeave, onToggleMicrophone;
   final bool autoMicrophoneEnabled, autoMicrophoneBusy;
   final ValueChanged<bool>? onAutoMicrophoneChanged;
+  final VoidCallback? onManagePairing;
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -156,6 +158,14 @@ class KyeobomStationView extends StatelessWidget {
             style: const TextStyle(color: Color(0xFFFFBE8B), fontSize: 11),
           ),
         ],
+        if (onManagePairing != null)
+          TextButton.icon(
+            onPressed: leaving ? null : onManagePairing,
+            icon: const Icon(Icons.admin_panel_settings_outlined, size: 18),
+            label: const Text('기기 연결·권한 관리',
+              style: TextStyle(fontSize: 12)),
+            style: TextButton.styleFrom(foregroundColor: Colors.white70),
+          ),
         TextButton(
           onPressed: leaving ? null : onLeave,
           style: TextButton.styleFrom(foregroundColor: Colors.white38),

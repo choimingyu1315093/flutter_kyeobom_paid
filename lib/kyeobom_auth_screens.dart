@@ -1,11 +1,13 @@
 import 'dart:async';
 
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'kyeobom_design.dart';
 import 'remote_control.dart';
 import 'homecam_session_housekeeping.dart';
+import 'kyeobom_station_start_dialog.dart';
 
 class _AuthShell extends StatelessWidget {
   const _AuthShell({required this.child, this.showBack = false});
@@ -70,6 +72,22 @@ class _LoginScreenState extends State<LoginScreen> {
       if (mounted) setState(() => error = e.message ?? '로그인 정보를 확인해 주세요.');
     } catch (e) {
       if (mounted) setState(() => error = '로그인 오류: $e');
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  Future<void> _startStation() async {
+    if (busy) return;
+    final approved = await showKyeobomStationStartDialog(context);
+    if (approved != true || !mounted) return;
+    setState(() { busy = true; error = null; });
+    try {
+      await RemoteControl.instance.signInStationAnonymously();
+      if (mounted) Navigator.of(context).pushReplacementNamed('/station');
+    } catch (e) {
+      if (mounted) setState(() => error =
+          '거치폰 설정 오류: $e. Firebase Authentication의 익명 로그인을 활성화해 주세요.');
     } finally {
       if (mounted) setState(() => busy = false);
     }
@@ -146,8 +164,20 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
       ]),
       const SizedBox(height: 7),
-      const Center(child: Text('두 스마트폰에서 동일한 계정으로 로그인해 주세요.',
-        style: TextStyle(color: KyeobomPalette.muted, fontSize: 11))),
+      const Divider(height: 28),
+      OutlinedButton.icon(
+        onPressed: busy ? null : _startStation,
+        icon: const Icon(Icons.videocam_outlined),
+        label: const Text('이 스마트폰을 거치폰으로 설정'),
+      ),
+      const SizedBox(height: 9),
+      const Center(child: Text(
+        '뷰어폰은 이메일로 로그인하고, 거치폰은 별도 인증으로 연결합니다.\n'
+        '거치폰 화면에 표시되는 코드를 뷰어폰에 입력한 뒤 승인해 주세요.',
+        textAlign: TextAlign.center,
+        style: TextStyle(color: KyeobomPalette.muted,
+          fontSize: 11, height: 1.5),
+      )),
     ]),
   );
 }
@@ -190,7 +220,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
         );
       }
     } on FirebaseAuthException catch (e) {
-      if (mounted) setState(() => error = e.message ?? '계정을 만들 수 없어요.');
+      // Do not log the email or password. Show the SDK error code in debug,
+      // so Auth emulator transport failures are diagnosable on physical phones.
+      if (kDebugMode) {
+        debugPrint('[kyeobom/qa] Auth signup failed '
+            '[firebase_auth/${e.code}]: ${e.message}');
+      }
+      if (mounted) {
+        setState(() => error = kDebugMode
+            ? '테스트 회원가입 오류 [${e.code}]: ${e.message ?? "상세 메시지 없음"}'
+            : e.message ?? '계정을 만들 수 없어요.');
+      }
     } catch (e) {
       if (mounted) setState(() => error = '회원가입 오류: $e');
     } finally {
