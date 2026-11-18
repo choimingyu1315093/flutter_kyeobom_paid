@@ -28,6 +28,8 @@ import 'homecam_auth_realm_guard.dart';
 import 'device_health.dart';
 import 'device_health_policy.dart';
 import 'health_push_messaging.dart';
+import 'event_recording_controller.dart';
+import 'event_clips_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -296,6 +298,13 @@ class _StationScreenState extends State<StationScreen>
   DeviceHealthPublisher? _health;
   String? _healthSyncError;
   DeviceHealthSnapshot? _latestHealth;
+  late final EventRecordingController _events;
+  late final Future<void> _eventSettingsReady;
+  static const _eventAutoKey = 'station_motion_record_opt_in_v1';
+  bool _eventEnabled = false;
+  bool _eventBusy = false;
+  bool _eventRecording = false;
+  String? _eventStatus;
   Future<void> _commandQueue = Future<void>.value();
 
   String _status = '연결 대기 준비 중';
@@ -316,6 +325,15 @@ class _StationScreenState extends State<StationScreen>
       debugPrint('[kyeobom/qa] station screen: initState entered');
     }
     unawaited(HealthPushMessaging.instance.activateStation());
+    _events = EventRecordingController(
+      onStatus: (status) {
+        if (mounted && !_leaving) setState(() => _eventStatus = status);
+      },
+      onRecordingChanged: (recording) {
+        if (mounted) setState(() => _eventRecording = recording);
+      },
+    );
+    _eventSettingsReady = _loadEventSetting();
     _microphone = StationMicrophone(onState: (capturing, message) {
       if (!mounted) return;
       setState(() {
@@ -349,6 +367,47 @@ class _StationScreenState extends State<StationScreen>
     _health!.start();
   }
 
+
+  Future<void> _loadEventSetting() async {
+    try {
+      final enabled = await _micPreferences.getBool(_eventAutoKey) ?? false;
+      _events.setEnabled(enabled);
+      if (mounted) setState(() => _eventEnabled = enabled);
+    } catch (error) {
+      if (mounted) setState(() => _eventStatus = '녹화 설정 확인 실패: $error');
+    }
+  }
+
+  Future<void> _setEventEnabled(bool enabled) async {
+    if (_leaving || _eventBusy) return;
+    setState(() => _eventBusy = true);
+    try {
+      await _micPreferences.setBool(_eventAutoKey, enabled);
+      _events.setEnabled(enabled);
+      if (!enabled) {
+        await _events.stop();
+      } else if (_streaming && _latestHealth?.shouldReduceVideo != true) {
+        await _events.start(_rtc.stationVideoTrack);
+      }
+      if (mounted) setState(() {
+        _eventEnabled = enabled;
+        _eventStatus = enabled
+            ? '움직임이 감지되면 20초 영상이 거치폰에만 저장됩니다'
+            : '이벤트 자동 녹화가 꺼졌어요';
+      });
+    } catch (error) {
+      if (mounted) setState(() => _eventStatus = '자동 녹화 설정 실패: $error');
+    } finally {
+      if (mounted) setState(() => _eventBusy = false);
+    }
+  }
+
+  Future<void> _openEventClips() async {
+    if (_leaving || _streaming) return;
+    await Navigator.of(context).push(MaterialPageRoute<void>(
+        builder: (_) => const EventClipsScreen()));
+  }
+
   Future<void> _openPairingDialog() async {
     if (_leaving) return;
     await showDialog<void>(
@@ -360,6 +419,12 @@ class _StationScreenState extends State<StationScreen>
   void _onHealthSample(DeviceHealthSnapshot snapshot) {
     if (!mounted || _leaving) return;
     setState(() => _latestHealth = snapshot);
+    // Recording has a lower priority than thermals, battery and video.
+    if (snapshot.shouldReduceVideo) {
+      unawaited(_events.stop());
+    } else if (_streaming && _eventEnabled) {
+      unawaited(_events.start(_rtc.stationVideoTrack));
+    }
 
     if (snapshot.shouldStopVideo && _rtc.isRunning) {
       _commandQueue = _commandQueue.then((_) async {
@@ -445,6 +510,7 @@ class _StationScreenState extends State<StationScreen>
   Future<void> _connectCommands() async {
     try {
       await _micSettingsReady;
+      await _eventSettingsReady;
       await RemoteControl.instance.startStation();
       if (!mounted || _leaving) return;
       _commands = RemoteControl.instance.watch().listen((snapshot) {
@@ -526,6 +592,17 @@ class _StationScreenState extends State<StationScreen>
         _streaming = true;
         _status = '후면 카메라 송출 중 · 마이크 OFF';
       });
+      // Opt-in only, and only on a live camera track. A recorder error must
+      // never block signaling or live viewing.
+      if (_eventEnabled && _latestHealth?.shouldReduceVideo != true) {
+        unawaited(_events.start(_rtc.stationVideoTrack).catchError(
+          (Object error) {
+            if (mounted) {
+              setState(() => _eventStatus = '자동 녹화 시작 실패: $error');
+            }
+          },
+        ));
+      }
       await RemoteControl.instance.acknowledge(id, 'answer_ready');
       if (_micAutoEnabled && _streaming && _rtc.sessionId == sessionId) {
         // Station-side opt-in only; viewer has no microphone capture.
@@ -562,6 +639,7 @@ class _StationScreenState extends State<StationScreen>
   }
 
   Future<void> _finishStream() async {
+    await _events.stop();
     await _microphone.disable();
     if (_rtc.isRunning) await _rtc.end();
     if (mounted && !_leaving) {
@@ -580,6 +658,7 @@ class _StationScreenState extends State<StationScreen>
     await _commands?.cancel();
     _health?.stop();
     try {
+      await _events.stop();
       await _microphone.disable();
       await _rtc.end();
       await RemoteControl.instance.stopStation();
@@ -625,9 +704,10 @@ class _StationScreenState extends State<StationScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _health?.stop();
+    // Native camera teardown remains deferred; finalize video first.
+    unawaited(_events.stop().then((_) => _rtc.end(notifyRemote: !_leaving)));
     unawaited(_commands?.cancel());
     unawaited(_microphone.disable());
-    unawaited(_rtc.end(notifyRemote: !_leaving));
     if (!_leaving) unawaited(RemoteControl.instance.stopStation());
     unawaited(_screen.invokeMethod<void>('disableWaitingMode'));
     super.dispose();
@@ -650,6 +730,13 @@ class _StationScreenState extends State<StationScreen>
               ? '기기 상태 확인 중'
               : '배터리 ${_latestHealth!.batteryLabel} · 발열 ${_latestHealth!.heatLabel}',
           healthWarning: _latestHealth?.warning,
+          eventRecordingEnabled: _eventEnabled,
+          eventRecordingBusy: _eventBusy,
+          recordingEvent: _eventRecording,
+          eventRecordingStatus: _eventStatus,
+          onEventRecordingChanged: (enabled) =>
+              unawaited(_setEventEnabled(enabled)),
+          onViewEventClips: () => unawaited(_openEventClips()),
           autoMicrophoneEnabled: _micAutoEnabled,
           autoMicrophoneBusy: _micSettingsBusy,
           onAutoMicrophoneChanged: (enabled) =>
