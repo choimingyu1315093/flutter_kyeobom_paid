@@ -150,7 +150,12 @@ class KyeobomBillingController extends ChangeNotifier {
         productDetails: product,
         applicationUserName: obfuscatedUid,
       );
-      await _store.buyNonConsumable(purchaseParam: param);
+      final started = await _store.buyNonConsumable(purchaseParam: param);
+      if (!started) {
+        purchaseInProgress = false;
+        status = '결제 요청을 시작하지 못했어요. 다시 시도해 주세요.';
+        _refresh();
+      }
     } catch (error) {
       purchaseInProgress = false;
       status = 'Google Play 결제 창을 열지 못했어요: $error';
