@@ -5,6 +5,10 @@ import 'package:flutter_home_camera/kyeobom_screens.dart';
 void main() {
   testWidgets('event recording defaults off and requires station opt-in',
       (tester) async {
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 3;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     var optedIn = false;
     await tester.pumpWidget(MaterialApp(
       home: KyeobomStationView(
