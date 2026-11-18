@@ -319,6 +319,7 @@ class _StationScreenState extends State<StationScreen>
   String? _lastCommandId;
   bool _foreground = true;
   bool _streaming = false;
+  bool _preparingStream = false;
   bool _leaving = false;
   bool _microphoneOn = false;
   bool _microphoneBusy = false;
@@ -398,7 +399,7 @@ class _StationScreenState extends State<StationScreen>
 
   Future<void> _resumeBabyMonitoring() async {
     if (!mounted || _leaving || !_foreground || _streaming ||
-        _rtc.isRunning || !_babyEnabled || !_babySound.enabled ||
+        _preparingStream || _rtc.isRunning || !_babyEnabled || !_babySound.enabled ||
         _latestHealth?.shouldReduceVideo == true ||
         _latestHealth?.shouldStopVideo == true) return;
     try {
@@ -412,7 +413,8 @@ class _StationScreenState extends State<StationScreen>
   }
 
   Future<void> _setBabyEnabled(bool enabled) async {
-    if (_babyBusy || _leaving) return;
+    if (_babyBusy || _leaving || _streaming || _preparingStream ||
+        _rtc.isRunning) return;
     setState(() => _babyBusy = true);
     try {
       // Permission is requested ONLY after deliberate station-side opt-in.
@@ -655,6 +657,7 @@ class _StationScreenState extends State<StationScreen>
       return;
     }
 
+    _preparingStream = true;
     try {
       if (mounted) setState(() => _status = '원격 연결 준비 중');
       // Free the sound-only native mic BEFORE opening the live camera and
@@ -704,9 +707,13 @@ class _StationScreenState extends State<StationScreen>
           _streaming = false;
           _status = '송출 시작 실패: $error';
         });
-        unawaited(_resumeBabyMonitoring());
       }
       await RemoteControl.instance.acknowledge(id, 'error: $error');
+    } finally {
+      _preparingStream = false;
+      if (mounted && !_streaming && _foreground) {
+        unawaited(_resumeBabyMonitoring());
+      }
     }
   }
 
