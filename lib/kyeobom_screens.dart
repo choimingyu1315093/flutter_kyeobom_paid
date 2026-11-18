@@ -69,7 +69,7 @@ class KyeobomStationView extends StatelessWidget {
             style: const TextStyle(
               color: Colors.white30, fontSize: 10, letterSpacing: 1.2)),
         ]),
-        Expanded(child: Center(child: Column(
+        Expanded(flex: 2, child: Center(child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Container(
@@ -140,6 +140,13 @@ class KyeobomStationView extends StatelessWidget {
             ],
           ],
         ))),
+        // Keep the controls reachable on compact iPhones and Android devices.
+        Flexible(
+          flex: 3,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
         if (!streaming)
           Container(
             decoration: BoxDecoration(
@@ -224,7 +231,8 @@ class KyeobomStationView extends StatelessWidget {
                   '대기 중 주변 소리 크기만 분석 · 녹음·전송 없음',
                   style: TextStyle(color: Colors.white38, fontSize: 10)),
                 value: babyEnabled,
-                onChanged: leaving || babyBusy ? null : onBabyChanged,
+                onChanged: leaving || babyBusy || streaming
+                    ? null : onBabyChanged,
                 activeTrackColor: KyeobomPalette.blue,
                 contentPadding: const EdgeInsets.symmetric(horizontal: 12),
               ),
@@ -276,6 +284,10 @@ class KyeobomStationView extends StatelessWidget {
           onPressed: leaving ? null : onLeave,
           style: TextButton.styleFrom(foregroundColor: Colors.white38),
           child: const Text('대기 종료', style: TextStyle(fontSize: 12)),
+        ),
+              ],
+            ),
+          ),
         ),
       ]),
     )),
