@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
@@ -128,12 +129,18 @@ class RoleSelectionScreen extends StatelessWidget {
     final confirmed = await showKyeobomStationStartDialog(context);
     if (confirmed != true || !context.mounted) return;
     try {
+      if (kDebugMode) {
+        debugPrint('[kyeobom/qa] role selection: station sign-in begin');
+      }
       // Revoke the previous viewer registration BEFORE Auth switches to an
       // anonymous station identity; afterwards its token document is inaccessible.
       if (FirebaseAuth.instance.currentUser?.isAnonymous == false) {
         await HealthPushMessaging.instance.signOut();
       }
       await RemoteControl.instance.signInStationAnonymously();
+      if (kDebugMode) {
+        debugPrint('[kyeobom/qa] role selection: station sign-in success');
+      }
       if (!context.mounted) return;
       await Navigator.of(context).pushReplacement(
         MaterialPageRoute<void>(builder: (_) => const StationScreen()),
@@ -305,6 +312,9 @@ class _StationScreenState extends State<StationScreen>
   @override
   void initState() {
     super.initState();
+    if (kDebugMode) {
+      debugPrint('[kyeobom/qa] station screen: initState entered');
+    }
     unawaited(HealthPushMessaging.instance.activateStation());
     _microphone = StationMicrophone(onState: (capturing, message) {
       if (!mounted) return;
