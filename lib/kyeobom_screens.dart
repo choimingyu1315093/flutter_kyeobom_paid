@@ -29,6 +29,12 @@ class KyeobomStationView extends StatelessWidget {
     this.eventRecordingStatus,
     this.onEventRecordingChanged,
     this.onViewEventClips,
+    this.babyEnabled = false,
+    this.babyBusy = false,
+    this.babyRunning = false,
+    this.babyEventCount = 0,
+    this.babyStatus,
+    this.onBabyChanged,
   });
 
   final String status;
@@ -44,6 +50,10 @@ class KyeobomStationView extends StatelessWidget {
   final String? eventRecordingStatus;
   final ValueChanged<bool>? onEventRecordingChanged;
   final VoidCallback? onViewEventClips;
+  final bool babyEnabled, babyBusy, babyRunning;
+  final int babyEventCount;
+  final String? babyStatus;
+  final ValueChanged<bool>? onBabyChanged;
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -86,7 +96,7 @@ class KyeobomStationView extends StatelessWidget {
             Text(
               streaming
                   ? '카메라 ON · 마이크 ${microphoneOn ? "ON" : "OFF"} · 녹화 ${recordingEvent ? "ON" : "OFF"}'
-                  : '카메라 OFF · 마이크 OFF · 녹화 OFF',
+                  : '카메라 OFF · ${babyRunning ? "소리 감지 ON" : "마이크 OFF"} · 녹화 OFF',
               style: const TextStyle(color: Colors.white24, fontSize: 11),
             ),
             const SizedBox(height: 12),
@@ -142,7 +152,7 @@ class KyeobomStationView extends StatelessWidget {
               child: SwitchListTile.adaptive(
                 title: const Text('실시간 보기 시 거치폰 마이크 자동 켜기',
                 style: TextStyle(color: Colors.white60, fontSize: 12)),
-              subtitle: const Text('주변 소리만 전송 · 대기 중에는 OFF',
+              subtitle: const Text('주변 소리 전송 · 베이비 모드와 별도 동작',
                 style: TextStyle(color: Colors.white30, fontSize: 10)),
               contentPadding: const EdgeInsets.symmetric(horizontal: 12),
               activeTrackColor: KyeobomPalette.blue,
@@ -196,6 +206,47 @@ class KyeobomStationView extends StatelessWidget {
                   style: TextStyle(fontSize: 11)),
               style: TextButton.styleFrom(foregroundColor: Colors.white70),
             ),
+        ],
+        if (onBabyChanged != null) ...[
+          const SizedBox(height: 8),
+          Container(
+            decoration: BoxDecoration(
+              color: const Color(0xFF0E1319),
+              border: Border.all(color: const Color(0xFF1E2832)),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Material(
+              type: MaterialType.transparency,
+              child: SwitchListTile.adaptive(
+                title: const Text('베이비 모드 · 소리 변화 감지',
+                  style: TextStyle(color: Colors.white70, fontSize: 12)),
+                subtitle: const Text(
+                  '대기 중 주변 소리 크기만 분석 · 녹음·전송 없음',
+                  style: TextStyle(color: Colors.white38, fontSize: 10)),
+                value: babyEnabled,
+                onChanged: leaving || babyBusy ? null : onBabyChanged,
+                activeTrackColor: KyeobomPalette.blue,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+              ),
+            ),
+          ),
+          if (babyEnabled || babyStatus != null) ...[
+            const SizedBox(height: 5),
+            Text(
+              babyStatus ?? (babyRunning
+                  ? '소리 감지 중 · 감지 ${babyEventCount}회'
+                  : '실시간 영상 시청 중 · 소리 감지 일시정지'),
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: Colors.white54, fontSize: 10),
+            ),
+            if (babyEventCount > 0)
+              Text('소리 변화 감지 ${babyEventCount}회 · 거치폰 내부에서만 표시',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Color(0xFFFFBE8B), fontSize: 10)),
+          ],
         ],
         if (microphoneMessage != null) ...[
           const SizedBox(height: 7),
