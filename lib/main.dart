@@ -576,7 +576,8 @@ class _StationScreenState extends State<StationScreen>
     try {
       if (mounted) setState(() => _status = '원격 연결 준비 중');
       if (_rtc.isRunning && _rtc.sessionId != sessionId) {
-        // Always release any audio from the previous viewer first.
+        // Finalize any clip BEFORE the previous camera track is released.
+        await _events.stop();
         await _microphone.disable();
         await _rtc.end();
       }
