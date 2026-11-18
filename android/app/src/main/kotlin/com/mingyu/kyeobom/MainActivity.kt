@@ -1,6 +1,13 @@
 package com.mingyu.kyeobom
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
+import android.media.AudioFormat
+import android.media.AudioRecord
+import android.media.MediaRecorder
+import kotlin.math.log10
+import kotlin.math.sqrt
 import android.os.BatteryManager
 import android.os.PowerManager
 import android.net.ConnectivityManager
@@ -15,6 +22,85 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
+    // Baby sound mode is explicit opt-in and foreground-only.
+    // Collects only decibel readings, never audio buffers on disk/network.
+    @Volatile private var babyMonitoring = false
+    @Volatile private var babySoundDb = -100.0
+    private var babyRecorder: AudioRecord? = null
+
+    private fun startBabyMonitoring(): String? {
+        if (babyMonitoring) return null
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) !=
+            PackageManager.PERMISSION_GRANTED) return "마이크 권한이 필요합니다"
+        val rate = 16000
+        val channel = AudioFormat.CHANNEL_IN_MONO
+        val encoding = AudioFormat.ENCODING_PCM_16BIT
+        val minimum = AudioRecord.getMinBufferSize(rate, channel, encoding)
+        if (minimum <= 0) return "오디오 입력 버퍼를 만들 수 없습니다"
+        val recorder = AudioRecord(
+            MediaRecorder.AudioSource.MIC, rate, channel, encoding,
+            maxOf(minimum * 2, 4096)
+        )
+        if (recorder.state != AudioRecord.STATE_INITIALIZED) {
+            recorder.release()
+            return "기기 마이크를 사용할 수 없습니다"
+        }
+        try {
+            recorder.startRecording()
+        } catch (error: Exception) {
+            recorder.release()
+            return "마이크 감지 시작 실패: ${error.javaClass.simpleName}"
+        }
+        babyRecorder = recorder
+        babySoundDb = -100.0
+        babyMonitoring = true
+        Thread({
+            val samples = ShortArray(1024)
+            while (babyMonitoring && babyRecorder === recorder) {
+                val count = recorder.read(samples, 0, samples.size)
+                if (count <= 0) break
+                var power = 0.0
+                for (i in 0 until count) {
+                    val sample = samples[i].toDouble()
+                    power += sample * sample
+                }
+                val rms = sqrt(power / count) / 32768.0
+                babySoundDb = (20.0 * log10(maxOf(rms, 0.00001)))
+                    .coerceIn(-100.0, 0.0)
+            }
+        }, "KyeobomBabySoundMeter").apply {
+            isDaemon = true
+            start()
+        }
+        return null
+    }
+
+    private fun stopBabyMonitoring() {
+        babyMonitoring = false
+        val recorder = babyRecorder
+        babyRecorder = null
+        babySoundDb = -100.0
+        if (recorder != null) {
+            try {
+                if (recorder.recordingState ==
+                    AudioRecord.RECORDSTATE_RECORDING) recorder.stop()
+            } catch (_: Exception) {}
+            try {
+                recorder.release()
+            } catch (_: Exception) {}
+        }
+    }
+
+    override fun onStop() {
+        stopBabyMonitoring()
+        super.onStop()
+    }
+
+    override fun onDestroy() {
+        stopBabyMonitoring()
+        super.onDestroy()
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         // Android 8+: background FCM uses this channel. Do not start any
@@ -33,6 +119,16 @@ class MainActivity : FlutterActivity() {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "home_camera/screen")
             .setMethodCallHandler { call, result ->
                 when (call.method) {
+                    "startBabySoundMonitoring" -> {
+                        val failure = startBabyMonitoring()
+                        if (failure == null) result.success(null)
+                        else result.error("BABY_SOUND_UNAVAILABLE", failure, null)
+                    }
+                    "readBabySoundLevel" -> result.success(babySoundDb)
+                    "stopBabySoundMonitoring" -> {
+                        stopBabyMonitoring()
+                        result.success(null)
+                    }
                     "getDeviceHealth" -> {
                         try {
                             // Telemetry must not destabilize the home camera.
