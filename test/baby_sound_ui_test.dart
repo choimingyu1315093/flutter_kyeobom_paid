@@ -43,6 +43,7 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
+    bool? revokedConsent;
     await tester.pumpWidget(MaterialApp(home: KyeobomStationView(
       status: '연결 대기 중',
       streaming: true,
@@ -54,11 +55,13 @@ void main() {
       babyEnabled: true,
       babyRunning: false,
       babyEventCount: 2,
-      onBabyChanged: (_) {},
+      onBabyChanged: (enabled) => revokedConsent = enabled,
     )));
     final babySwitch = tester.widgetList<SwitchListTile>(
       find.byType(SwitchListTile)).last;
-    expect(babySwitch.onChanged, isNull);
+    expect(babySwitch.onChanged, isNotNull);
+    babySwitch.onChanged?.call(false);
+    expect(revokedConsent, false);
     expect(find.textContaining('소리 변화 감지 2회'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
