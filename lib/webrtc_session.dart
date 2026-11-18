@@ -6,6 +6,8 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 import 'remote_control.dart';
 import 'homecam_cost_policy.dart';
+import 'homecam_video_quality.dart';
+import 'homecam_recovery_policy.dart';
 
 /// One on-demand, video-only WebRTC session.
 ///
@@ -16,10 +18,14 @@ class HomeCamWebRtcSession {
   HomeCamWebRtcSession({
     required this.onStatus,
     this.onRemoteEnded,
+    this.onConnectionLost,
+    this.onConnectionEstablished,
   });
 
   final void Function(String status) onStatus;
   final void Function()? onRemoteEnded;
+  final void Function()? onConnectionLost;
+  final void Function()? onConnectionEstablished;
 
   static const Map<String, dynamic> _iceConfig =
       HomeCamCostPolicy.directIceConfig;
@@ -46,6 +52,74 @@ class HomeCamWebRtcSession {
   bool _answerInProgress = false;
   bool _closing = false;
   bool _reducedVideo = false;
+  bool _viewerTransportConnected = false;
+  Timer? _lostConnectionTimer;
+  Timer? _initialConnectionTimer;
+  Timer? _qualityStatsTimer;
+
+  Future<void> _logActualVideoQuality() async {
+    if (!kDebugMode || _closing || _peer == null) return;
+    try {
+      final reports = await _peer!.getStats();
+      for (final report in reports) {
+        if (report.type != (_viewer ? 'inbound-rtp' : 'outbound-rtp')) {
+          continue;
+        }
+        final values = report.values;
+        if (values['kind'] != 'video' && values['mediaType'] != 'video') {
+          continue;
+        }
+        final width = values['frameWidth'];
+        final height = values['frameHeight'];
+        final fps = values['framesPerSecond'];
+        if (width != null && height != null) {
+          debugPrint('[kyeobom/video] actual ${_viewer ? "viewer" : "station"} '
+              '${width}x${height} fps=$fps');
+        }
+      }
+    } catch (error) {
+      debugPrint('[kyeobom/video] stats unavailable: $error');
+    }
+  }
+
+  void _startQualityStatsLogging() {
+    if (!kDebugMode || _qualityStatsTimer != null) return;
+    _qualityStatsTimer = Timer.periodic(
+      const Duration(seconds: 20),
+      (_) => unawaited(_logActualVideoQuality()),
+    );
+  }
+
+  void _watchConnectionState(String state) {
+    if (_closing || !_viewer) return;
+    final status = state.toLowerCase();
+    final failed = status.endsWith('failed') ||
+        status.endsWith('disconnected');
+    final connected = status.endsWith('connected') &&
+        !status.endsWith('disconnected');
+    if (connected) {
+      _viewerTransportConnected = true;
+      _startQualityStatsLogging();
+      _lostConnectionTimer?.cancel();
+      _lostConnectionTimer = null;
+      _initialConnectionTimer?.cancel();
+      _initialConnectionTimer = null;
+      onConnectionEstablished?.call();
+    } else if (failed && _viewerTransportConnected &&
+        _lostConnectionTimer == null) {
+      // Mobile networks can briefly disconnect while switching Wi-Fi/LTE.
+      final id = _sessionId;
+      _lostConnectionTimer = Timer(
+        HomeCamRecoveryPolicy.disconnectedGrace,
+        () {
+          _lostConnectionTimer = null;
+          if (!_closing && _viewer && _sessionId == id) {
+            onConnectionLost?.call();
+          }
+        },
+      );
+    }
+  }
 
   RTCVideoRenderer? get renderer => _remoteRenderer;
   bool get isRunning => _sessionId != null;
@@ -59,9 +133,11 @@ class HomeCamWebRtcSession {
     _peer = await createPeerConnection(_iceConfig);
     _peer!.onIceConnectionState = (state) {
       if (!_closing) onStatus('ICE 연결: ${state.toString().split('.').last}');
+      _watchConnectionState(state.toString());
     };
     _peer!.onConnectionState = (state) {
       if (!_closing) onStatus('WebRTC: ${state.toString().split('.').last}');
+      _watchConnectionState(state.toString());
     };
     _peer!.onDataChannel = (channel) {
       final id = _sessionId;
@@ -210,6 +286,9 @@ class HomeCamWebRtcSession {
     _viewerStartedAt = DateTime.now();
     _lastDirectAck = null;
     _lastFirestoreFallback = null;
+    _viewerTransportConnected = false;
+    _lostConnectionTimer?.cancel();
+    _initialConnectionTimer?.cancel();
 
     final doc = RemoteControl.instance.station.collection('sessions').doc();
     final id = doc.id;
@@ -311,6 +390,16 @@ class HomeCamWebRtcSession {
           }
         },
       );
+      _initialConnectionTimer = Timer(
+        HomeCamRecoveryPolicy.initialConnectionTimeout,
+        () {
+          if (!_closing && _viewer && _sessionId == id &&
+              !_viewerTransportConnected) {
+            onStatus('연결 시간 초과 · 자동 재연결 준비');
+            onConnectionLost?.call();
+          }
+        },
+      );
       onStatus('거치폰의 연결 응답을 기다리는 중');
     } catch (_) {
       await end();
@@ -386,18 +475,58 @@ class HomeCamWebRtcSession {
       );
       await _readyForRemoteIce();
 
-      _cameraStream = await navigator.mediaDevices.getUserMedia({
-        'audio': false,
-        'video': {
-          'facingMode': 'environment',
-          'width': {'ideal': reducedQuality ? 640 : 1280},
-          'height': {'ideal': reducedQuality ? 360 : 720},
-          'frameRate': {'ideal': reducedQuality ? 12 : 20},
-        },
-      });
+      var usedFallback = reducedQuality;
+      if (reducedQuality) {
+        // Device health takes precedence over HD while battery/heat is unsafe.
+        _cameraStream = await navigator.mediaDevices.getUserMedia({
+          'audio': false,
+          'video': {
+            'facingMode': 'environment',
+            'width': {'ideal': 640},
+            'height': {'ideal': 360},
+            'frameRate': {'ideal': 12},
+          },
+        });
+      } else {
+        try {
+          _cameraStream = await navigator.mediaDevices.getUserMedia(
+            HomeCamVideoQuality.cameraConstraints(),
+          );
+        } catch (error) {
+          if (!HomeCamVideoQuality.canFallbackFor(error)) rethrow;
+          usedFallback = true;
+          _cameraStream = await navigator.mediaDevices.getUserMedia(
+            HomeCamVideoQuality.cameraConstraints(fallback: true),
+          );
+        }
+      }
       _reducedVideo = reducedQuality;
       for (final track in _cameraStream!.getVideoTracks()) {
-        await _peer!.addTrack(track, _cameraStream!);
+        final sender = await _peer!.addTrack(track, _cameraStream!);
+        // Best effort: encoders may reject these parameters on some hardware.
+        // Failure must never prevent the existing working HD video connection.
+        try {
+          final params = sender.parameters;
+          params.degradationPreference = RTCDegradationPreference.BALANCED;
+          for (final encoding in params.encodings ?? <RTCRtpEncoding>[]) {
+            encoding.maxBitrate = usedFallback
+                ? HomeCamVideoQuality.fallbackBitrateBps
+                : HomeCamVideoQuality.preferredBitrateBps;
+            encoding.maxFramerate = usedFallback
+                ? HomeCamVideoQuality.fallbackFps
+                : HomeCamVideoQuality.preferredFps;
+          }
+          await sender.setParameters(params);
+        } catch (error) {
+          if (kDebugMode) {
+            debugPrint('[kyeobom/video] encoder preferences ignored: $error');
+          }
+        }
+      }
+      if (kDebugMode) {
+        debugPrint(usedFallback
+            ? '[kyeobom/video] 720p fallback requested'
+            : '[kyeobom/video] 1080p preferred requested');
       }
 
       final answer = await _peer!.createAnswer();
@@ -406,6 +535,7 @@ class HomeCamWebRtcSession {
         'answer': {'sdp': answer.sdp, 'type': answer.type},
         'state': 'answer_ready',
       });
+      _startQualityStatsLogging();
       onStatus('후면 카메라 송출 중 · 마이크 OFF');
     } catch (_) {
       await end();
@@ -460,6 +590,13 @@ class HomeCamWebRtcSession {
     _closing = true;
     _sessionId = null;
     _reducedVideo = false;
+    _viewerTransportConnected = false;
+    _qualityStatsTimer?.cancel();
+    _qualityStatsTimer = null;
+    _lostConnectionTimer?.cancel();
+    _lostConnectionTimer = null;
+    _initialConnectionTimer?.cancel();
+    _initialConnectionTimer = null;
     await _sessionSub?.cancel();
     _sessionSub = null;
     await _candidatesSub?.cancel();
