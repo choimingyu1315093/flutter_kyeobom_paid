@@ -106,7 +106,10 @@ test('station registration cannot supply a push token, and alert state is admin-
   await assertFails(getDoc(doc(viewer(), state)));
 });
 
-// The published free rules do not yet have the separate paid entitlement grant.\n// Skip ONLY this unrelated check when testing exact published-free + additive policy.\ntest('free subscription grants remain read-only and scoped to their owner',\n  {skip: Boolean(process.env.KYEOBOM_TEST_RULES_PATH)}, async () => {
+// The published free rules do not yet have the separate paid entitlement grant.
+// Skip ONLY this unrelated check when testing exact published-free + additive policy.
+test('free subscription grants remain read-only and scoped to their owner',
+  {skip: Boolean(process.env.KYEOBOM_TEST_RULES_PATH)}, async () => {
   const entitlement = 'homecamEntitlements/' + viewerUid;
   await env.withSecurityRulesDisabled(async (ctx) => {
     await setDoc(doc(ctx.firestore(), entitlement), {isActive: true});
