@@ -41,7 +41,9 @@ void main() {
     for (var i = 0; i < 6; i++) {
       expect(detector.observe(-30, base.add(Duration(seconds: 20 + i))), false);
     }
-    expect(detector.observe(-35, base.add(const Duration(seconds: 110))), true);
+    expect(detector.observe(-35, base.add(const Duration(seconds: 110))), false);
+    expect(detector.observe(-35, base.add(const Duration(seconds: 111))), false);
+    expect(detector.observe(-35, base.add(const Duration(seconds: 112))), true);
   });
 
   test('uniformly loud background does not trigger without change', () {
