@@ -19,13 +19,13 @@ List<int>? eventLumaFromFrame(Uint8List encodedFrame) {
   final luma = <int>[];
   for (var y = 0; y < rows; y++) {
     final py = ((y + 0.5) * frame.height / rows).floor()
-        .clamp(0, frame.height - 1);
+        .clamp(0, frame.height - 1).toInt();
     for (var x = 0; x < columns; x++) {
       final px = ((x + 0.5) * frame.width / columns).floor()
-          .clamp(0, frame.width - 1);
+          .clamp(0, frame.width - 1).toInt();
       final pixel = frame.getPixel(px, py);
       luma.add((0.2126 * pixel.r + 0.7152 * pixel.g +
-          0.0722 * pixel.b).round().clamp(0, 255));
+          0.0722 * pixel.b).round().clamp(0, 255).toInt());
     }
   }
   return luma;
