@@ -37,10 +37,14 @@ class MainActivity : FlutterActivity() {
         val encoding = AudioFormat.ENCODING_PCM_16BIT
         val minimum = AudioRecord.getMinBufferSize(rate, channel, encoding)
         if (minimum <= 0) return "오디오 입력 버퍼를 만들 수 없습니다"
-        val recorder = AudioRecord(
-            MediaRecorder.AudioSource.MIC, rate, channel, encoding,
-            maxOf(minimum * 2, 4096)
-        )
+        val recorder = try {
+            AudioRecord(
+                MediaRecorder.AudioSource.MIC, rate, channel, encoding,
+                maxOf(minimum * 2, 4096)
+            )
+        } catch (error: Exception) {
+            return "기기 마이크 초기화 실패: ${error.javaClass.simpleName}"
+        }
         if (recorder.state != AudioRecord.STATE_INITIALIZED) {
             recorder.release()
             return "기기 마이크를 사용할 수 없습니다"
