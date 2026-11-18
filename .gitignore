@@ -56,3 +56,7 @@ firebase-debug.*.log
 /android/app/google-services.json
 /ios/Runner/GoogleService-Info.plist
 /lib/firebase_options.dart
+
+# Local emulator QA artifacts
+/tools/paid_security_rules/node_modules/
+/tools/paid_security_rules/firestore.rules
