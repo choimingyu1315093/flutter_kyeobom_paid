@@ -19,7 +19,13 @@ class EventClip {
 /// A pending recording lives outside the visible clips directory until its
 /// MediaRecorder.stop() completes successfully.
 class EventClipStore {
+  EventClipStore({Directory? rootOverride}) : _rootOverride = rootOverride;
+
+  // Allows safe local-only retention tests without writing to app storage.
+  final Directory? _rootOverride;
+
   Future<Directory> _root() async {
+    if (_rootOverride != null) return _rootOverride;
     final app = await getApplicationSupportDirectory();
     return Directory('${app.path}/kyeobom_event_clips');
   }
@@ -40,6 +46,11 @@ class EventClipStore {
   }
 
   Future<EventClip?> finalize(File pending) async {
+    // Only publish files created in our own pending-recording directory.
+    final root = await _root();
+    final expectedDir = Directory('${root.path}/pending');
+    if (pending.parent.path != expectedDir.path ||
+        !_validName(_basename(pending.path))) return null;
     if (!await pending.exists()) return null;
     final size = await pending.length();
     if (size <= 1024) {
@@ -49,6 +60,9 @@ class EventClipStore {
     final dir = await _readyDir();
     final moved = await pending.rename('${dir.path}/${_basename(pending.path)}');
     await prune();
+    // Retention may legitimately discard a large clip when storage is full.
+    // Do not report an unhandled FileSystemException during that cleanup.
+    if (!await moved.exists()) return null;
     final info = await moved.stat();
     return EventClip(file: moved, createdAt: _timestamp(moved.path),
         bytes: info.size);
