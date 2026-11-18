@@ -1,0 +1,119 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // The camera phone is an anonymous Firebase principal. The viewer is a
+    // distinct email/password principal. A station can approve ONE viewer.
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function stationIdentity(uid) {
+      return signedIn() &&
+        request.auth.uid == uid &&
+        request.auth.token.firebase.sign_in_provider == 'anonymous';
+    }
+
+    function approvedViewer(stationUid) {
+      return signedIn() &&
+        request.auth.token.firebase.sign_in_provider != 'anonymous' &&
+        exists(/databases/$(database)/documents/homecamStations/$(stationUid)) &&
+        get(/databases/$(database)/documents/homecamStations/$(stationUid))
+          .data.viewerUid == request.auth.uid;
+    }
+
+    match /homecamStations/{stationUid} {
+      allow create: if stationIdentity(stationUid) &&
+        request.resource.data.viewerUid == '' &&
+        request.resource.data.viewerEmail == '';
+
+      allow get: if stationIdentity(stationUid) ||
+        (signedIn() && resource.data.viewerUid == request.auth.uid &&
+         request.auth.token.firebase.sign_in_provider != 'anonymous');
+      allow list: if false;
+
+      // Only the actual camera phone can grant or revoke viewer permissions.
+      // A paired viewer may edit only the remote command envelope.
+      allow update: if stationIdentity(stationUid) ||
+        (approvedViewer(stationUid) &&
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+           'command', 'sessionId', 'commandId', 'updatedAt'
+         ]));
+      allow delete: if stationIdentity(stationUid);
+
+      // Video/audio stay P2P; these docs hold only session SDP/ICE signaling.
+      // Revocation is evaluated on every access, including old session URLs.
+      match /sessions/{sessionId} {
+        allow get, list, create, update, delete:
+          if stationIdentity(stationUid) || approvedViewer(stationUid);
+        match /viewerCandidates/{candidateId} {
+          allow get, list, create, update, delete:
+            if stationIdentity(stationUid) || approvedViewer(stationUid);
+        }
+        match /stationCandidates/{candidateId} {
+          allow get, list, create, update, delete:
+            if stationIdentity(stationUid) || approvedViewer(stationUid);
+        }
+      }
+    }
+
+    match /homecamPairings/{code} {
+      // Code is high-entropy, generated with a secure RNG. Never enumerate.
+      allow get: if signedIn();
+      allow list: if false;
+      allow create: if signedIn() &&
+        code.matches('^[A-HJ-NP-Z2-9]{10}$') &&
+        stationIdentity(request.resource.data.stationUid) &&
+        exists(/databases/$(database)/documents/homecamStations/$(request.auth.uid)) &&
+        request.resource.data.keys().hasOnly([
+          'stationUid', 'status', 'pendingViewerUid', 'pendingViewerEmail',
+          'expiresAt', 'createdAt'
+        ]) &&
+        request.resource.data.status == 'open' &&
+        request.resource.data.pendingViewerUid == '' &&
+        request.resource.data.pendingViewerEmail == '' &&
+        request.resource.data.expiresAt > request.time &&
+        request.resource.data.expiresAt <= request.time + duration.value(15, 'm');
+
+      // A viewer may only request a pending claim for their own Auth UID/email.
+      // The viewer cannot approve itself, change stationUID, or extend expiry.
+      allow update: if (
+        signedIn() &&
+        request.auth.token.firebase.sign_in_provider != 'anonymous' &&
+        resource.data.status == 'open' &&
+        resource.data.expiresAt > request.time &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status', 'pendingViewerUid', 'pendingViewerEmail'
+        ]) &&
+        request.resource.data.status == 'pending' &&
+        request.resource.data.pendingViewerUid == request.auth.uid &&
+        request.resource.data.pendingViewerEmail == request.auth.token.email
+      ) || (
+        signedIn() &&
+        request.auth.token.firebase.sign_in_provider != 'anonymous' &&
+        resource.data.status == 'pending' &&
+        resource.data.pendingViewerUid == request.auth.uid &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status', 'pendingViewerUid', 'pendingViewerEmail'
+        ]) &&
+        request.resource.data.status == 'open' &&
+        request.resource.data.pendingViewerUid == '' &&
+        request.resource.data.pendingViewerEmail == ''
+      ) || (
+        stationIdentity(resource.data.stationUid) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status', 'pendingViewerUid', 'pendingViewerEmail'
+        ]) &&
+        (
+          (resource.data.status == 'pending' &&
+            request.resource.data.status == 'approved' &&
+            resource.data.expiresAt > request.time) ||
+          (resource.data.status == 'pending' &&
+            request.resource.data.status == 'open' &&
+            request.resource.data.pendingViewerUid == '' &&
+            request.resource.data.pendingViewerEmail == '')
+        )
+      );
+      allow delete: if stationIdentity(resource.data.stationUid);
+    }
+  }
+}
