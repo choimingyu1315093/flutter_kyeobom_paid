@@ -76,9 +76,14 @@ def main() -> None:
                 raise ValueError("paid lib/main.dart 없음")
             updated = replace_once(existing, OLD_IMPORT, NEW_IMPORT,
                                    "paid main imports")
-            start = target.index("          const SizedBox(height: 14),\n"
-                                 "          KyeobomRoleCard(")
-            end = target.index(OLD_CARD, start)
+            premium_title = target.index("title: '프리미엄 구독 및 관리'")
+            start = target.rfind(
+                "          const SizedBox(height: 14),\n"
+                "          KyeobomRoleCard(", 0, premium_title
+            )
+            if start == -1:
+                raise ValueError("프리미엄 카드 시작 지점을 찾지 못했습니다")
+            end = target.index(OLD_CARD, premium_title)
             inserted = target[start:end] + OLD_CARD
             updated = replace_once(updated, OLD_CARD, inserted,
                                    "paid main premium card")
