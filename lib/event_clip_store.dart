@@ -68,6 +68,18 @@ class EventClipStore {
   }
 
   Future<void> prune() async {
+    // A previous native recorder crash can leave a partial, unpublished clip.
+    // Active recordings are at most 20 seconds, so only clear 1h-old remnants.
+    final root = await _root();
+    final pending = Directory('${root.path}/pending');
+    if (await pending.exists()) {
+      final entries = await pending.list(followLinks: false).toList();
+      for (final entry in entries) {
+        if (entry is! File || !_validName(_basename(entry.path))) continue;
+        final age = DateTime.now().difference(await entry.lastModified());
+        if (age > const Duration(hours: 1)) await entry.delete();
+      }
+    }
     final clips = await _readClips();
     final now = DateTime.now();
     var bytes = 0;
