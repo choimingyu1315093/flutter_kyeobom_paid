@@ -160,7 +160,12 @@ class KyeobomStationView extends StatelessWidget {
               border: Border.all(color: const Color(0xFF1E2832)),
               borderRadius: BorderRadius.circular(12),
             ),
-            child: SwitchListTile.adaptive(
+            // SwitchListTile paints its ink on the nearest Material.
+            // Keep a transparent Material between the decorated surface and
+            // the tile so the opt-in UI works in both debug tests and release.
+            child: Material(
+              type: MaterialType.transparency,
+              child: SwitchListTile.adaptive(
               title: const Text('이벤트 자동 녹화',
                 style: TextStyle(color: Colors.white70, fontSize: 12)),
               subtitle: const Text(
@@ -171,6 +176,7 @@ class KyeobomStationView extends StatelessWidget {
                   ? null : onEventRecordingChanged,
               activeTrackColor: KyeobomPalette.blue,
               contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+              ),
             ),
           ),
           if (eventRecordingStatus != null) ...[
