@@ -128,6 +128,11 @@ class RoleSelectionScreen extends StatelessWidget {
     final confirmed = await showKyeobomStationStartDialog(context);
     if (confirmed != true || !context.mounted) return;
     try {
+      // Revoke the previous viewer registration BEFORE Auth switches to an
+      // anonymous station identity; afterwards its token document is inaccessible.
+      if (FirebaseAuth.instance.currentUser?.isAnonymous == false) {
+        await HealthPushMessaging.instance.signOut();
+      }
       await RemoteControl.instance.signInStationAnonymously();
       if (!context.mounted) return;
       await Navigator.of(context).pushReplacement(

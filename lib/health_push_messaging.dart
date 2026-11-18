@@ -268,8 +268,11 @@ class HealthPushMessaging {
           await doc.delete().timeout(const Duration(seconds: 5));
         }
       }
+    } catch (_) {
+      // Revocation is also enforced by the current station.viewerUid on server.
+    } finally {
       _registeredStationUid = null;
-    } catch (_) {}
+    }
     try {
       await FirebaseMessaging.instance.deleteToken();
     } catch (_) {}
