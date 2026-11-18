@@ -20,6 +20,10 @@ import 'kyeobom_fullscreen_ads.dart';
 import 'kyeobom_auth_screens.dart';
 import 'kyeobom_station_start_dialog.dart';
 import 'homecam_session_housekeeping.dart';
+import 'homecam_pairing_screens.dart';
+import 'homecam_recovery_policy.dart';
+import 'homecam_emulator_qa.dart';
+import 'homecam_auth_realm_guard.dart';
 import 'device_health.dart';
 import 'device_health_policy.dart';
 import 'health_push_messaging.dart';
@@ -28,10 +32,51 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   try {
     await RemoteControl.instance.initialize();
+    // Optional local-only testing: never touch production Auth or Firestore
+    // while the special debug flag is enabled.
+    await HomeCamEmulatorQa.configure();
+    // iOS can retain Firebase Auth in Keychain after app deletion. A fresh
+    // install, or switching local QA <-> production, must never silently
+    // restore the old camera-station identity before showing the first route.
+    // Do not continue to StationScreen if clearing the local identity fails.
+    try {
+      await HomeCamAuthRealmGuard.prepare();
+    } catch (error) {
+      runApp(MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Text(
+                '기존 로그인 정보를 초기화하지 못했어요. '
+                '앱을 완전히 종료한 뒤 다시 실행해 주세요.'
+                '\n\n오류: $error',
+                textAlign: TextAlign.center,
+              ),
+            ),
+          ),
+        ),
+      ));
+      return;
+    }
+    await RemoteControl.instance.restoreViewerPairing();
     // Non-blocking: at most one small free-tier cleanup per device/day.
     // Never touch ongoing WebRTC sessions or delay showing the UI.
     unawaited(HomeCamSessionHousekeeping.runIfDue());
-  } catch (_) {
+  } catch (error) {
+    if (HomeCamEmulatorQa.enabled) {
+      // Fail CLOSED. A misconfigured QA emulator must never silently send
+      // test registration or camera signaling to a real Firebase project.
+      runApp(MaterialApp(
+        home: Scaffold(
+          body: Center(child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Text('Firebase 에뮬레이터 QA 초기화 실패: $error'),
+          )),
+        ),
+      ));
+      return;
+    }
     // A clear setup prompt is shown below when Firebase is unavailable.
   }
   runApp(const HomeCameraApp());
@@ -46,7 +91,7 @@ class HomeCameraApp extends StatelessWidget {
           title: '켜봄',
         debugShowCheckedModeBanner: false,
         theme: KyeobomTheme.light,
-        // Render real FCM warnings above the landscape viewer video.
+        // Render FCM health warnings over full-screen landscape video.
         builder: (context, child) => Stack(
           fit: StackFit.expand,
           children: [
@@ -57,7 +102,10 @@ class HomeCameraApp extends StatelessWidget {
             ),
           ],
         ),
-        routes: {'/roles': (_) => const RoleSelectionScreen()},
+        routes: {
+          '/roles': (_) => const RoleSelectionScreen(),
+          '/station': (_) => const StationScreen(),
+        },
         home: Firebase.apps.isEmpty
             ? const Scaffold(
                 body: Center(
@@ -66,7 +114,9 @@ class HomeCameraApp extends StatelessWidget {
               )
             : FirebaseAuth.instance.currentUser == null
                 ? const LoginScreen()
-                : const RoleSelectionScreen(),
+                : FirebaseAuth.instance.currentUser!.isAnonymous
+                    ? const StationScreen()
+                    : const RoleSelectionScreen(),
         ),
       );
 }
@@ -77,9 +127,18 @@ class RoleSelectionScreen extends StatelessWidget {
   Future<void> _openStation(BuildContext context) async {
     final confirmed = await showKyeobomStationStartDialog(context);
     if (confirmed != true || !context.mounted) return;
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => const StationScreen()),
-    );
+    try {
+      await RemoteControl.instance.signInStationAnonymously();
+      if (!context.mounted) return;
+      await Navigator.of(context).pushReplacement(
+        MaterialPageRoute<void>(builder: (_) => const StationScreen()),
+      );
+    } catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('거치폰 설정 실패: $error. Firebase 익명 인증을 확인해 주세요.')),
+      );
+    }
   }
 
   @override
@@ -98,12 +157,42 @@ class RoleSelectionScreen extends StatelessWidget {
           tooltip: '로그아웃',
           icon: const Icon(Icons.logout_rounded, size: 19),
           onPressed: () async {
-            await HealthPushMessaging.instance.signOut();
-            await FirebaseAuth.instance.signOut();
-            if (!context.mounted) return;
-            Navigator.of(context).pushReplacement(
-              MaterialPageRoute<void>(builder: (_) => const LoginScreen()),
-            );
+            try {
+              if (FirebaseAuth.instance.currentUser?.isAnonymous == true) {
+                final confirmed = await showDialog<bool>(
+                  context: context,
+                  builder: (_) => AlertDialog(
+                    title: const Text('거치폰 인증 초기화'),
+                    content: const Text(
+                      '이 거치폰에 연결된 뷰어의 접근 권한이 사라지고 '
+                      '다음 사용 시 다시 연결해야 합니다. 계속할까요?'),
+                    actions: [
+                      TextButton(onPressed: () =>
+                        Navigator.of(context).pop(false),
+                        child: const Text('취소')),
+                      FilledButton(onPressed: () =>
+                        Navigator.of(context).pop(true),
+                        child: const Text('초기화')),
+                    ],
+                  ),
+                );
+                if (confirmed != true) return;
+                // Revocation is server-enforced before dropping local Auth.
+                await RemoteControl.instance.station.delete();
+              }
+              await HealthPushMessaging.instance.signOut();
+              await FirebaseAuth.instance.signOut();
+              if (!context.mounted) return;
+              Navigator.of(context).pushReplacement(
+                MaterialPageRoute<void>(builder: (_) => const LoginScreen()),
+              );
+            } catch (error) {
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                  content: Text('기기 연결 해제 실패: $error'),
+                ));
+              }
+            }
           },
         ),
         const SizedBox(width: 5),
@@ -137,9 +226,18 @@ class RoleSelectionScreen extends StatelessWidget {
             icon: Icons.visibility_outlined,
             title: '홈캠 보기',
             subtitle: '다른 기기에 연결된 홈캠의 영상을\n실시간으로 확인할 수 있어요.',
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(builder: (_) => const ViewerScreen()),
-            ),
+            onTap: () {
+              if (FirebaseAuth.instance.currentUser?.isAnonymous == true) {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                  content: Text('뷰어폰은 이메일 계정으로 로그인해 주세요.'),
+                ));
+                return;
+              }
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(builder: (_) =>
+                  ViewerPairingGate(viewerBuilder: (_) => const ViewerScreen())),
+              );
+            },
           ),
           const SizedBox(height: 16),
           Container(
@@ -234,6 +332,14 @@ class _StationScreenState extends State<StationScreen>
       },
     );
     _health!.start();
+  }
+
+  Future<void> _openPairingDialog() async {
+    if (_leaving) return;
+    await showDialog<void>(
+      context: context,
+      builder: (_) => StationPairingDialog(stopStream: _finishStream),
+    );
   }
 
   void _onHealthSample(DeviceHealthSnapshot snapshot) {
@@ -463,7 +569,15 @@ class _StationScreenState extends State<StationScreen>
       await _rtc.end();
       await RemoteControl.instance.stopStation();
     } finally {
-      if (mounted) Navigator.of(context).pop();
+      if (mounted) {
+        if (Navigator.of(context).canPop()) {
+          Navigator.of(context).pop();
+        } else {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute<void>(builder: (_) => const RoleSelectionScreen()),
+          );
+        }
+      }
     }
   }
 
@@ -476,7 +590,6 @@ class _StationScreenState extends State<StationScreen>
         state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached;
     if (background && !_leaving) {
-      // Never advertise a backgrounded station as an active home camera.
       _health?.stop();
       if (mounted) {
         setState(() => _status = '앱 비활성화 · 영상 송출 중단');
@@ -529,6 +642,7 @@ class _StationScreenState extends State<StationScreen>
           leaving: _leaving,
           onLeave: () => unawaited(_leave()),
           onToggleMicrophone: () => unawaited(_toggleStationMicrophone()),
+          onManagePairing: () => unawaited(_openPairingDialog()),
         ),
       );
 }
@@ -556,6 +670,71 @@ class _ViewerScreenState extends State<ViewerScreen>
   bool _leaving = false;
   bool _landscapeLocked = false;
   DateTime? _viewStartedAt;
+  Timer? _reconnectTimer;
+  int _reconnectAttempts = 0;
+  bool _reconnecting = false;
+  bool _userStopped = false;
+  bool _viewerInBackground = false;
+
+  void _cancelReconnect() {
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+  }
+
+  void _scheduleReconnect() {
+    if (!mounted || !_watching || _busy || _reconnecting ||
+        _reconnectTimer != null) return;
+    if (!HomeCamRecoveryPolicy.shouldRetry(
+      userStopped: _userStopped,
+      leaving: _leaving,
+      inBackground: _viewerInBackground,
+      attemptedRetries: _reconnectAttempts,
+    )) {
+      if (mounted && !_userStopped && !_leaving && !_viewerInBackground) {
+        setState(() => _status = '연결을 복구하지 못했어요. 종료 후 다시 시작해 주세요.');
+      }
+      return;
+    }
+    final delay = HomeCamRecoveryPolicy.retryDelay(_reconnectAttempts)!;
+    _reconnectAttempts++;
+    setState(() =>
+      _status = '연결이 끊겼어요 · 재연결 ${_reconnectAttempts}/3 준비 중');
+    _reconnectTimer = Timer(delay, () {
+      _reconnectTimer = null;
+      unawaited(_retryConnection());
+    });
+  }
+
+  Future<void> _retryConnection() async {
+    if (_userStopped || _leaving || _viewerInBackground ||
+        !_watching || _reconnecting || _busy) return;
+    _reconnecting = true;
+    setState(() => _status = '홈캠 자동 재연결 중...');
+    var failed = false;
+    try {
+      await _viewerAudio.detach();
+      // Restart as a fresh session; the current signaling flow handles a
+      // single offer/answer, so an in-place ICE restart would be unsafe.
+      await _rtc.end();
+      await _rtc.startViewer();
+      if (_userStopped || _leaving || _viewerInBackground || !mounted) {
+        await _rtc.end();
+        return;
+      }
+      try {
+        await _viewerAudio.attach(_rtc.sessionId!);
+      } catch (error) {
+        if (mounted) setState(() => _remoteAudioMessage = '소리 연결 재시도: $error');
+      }
+      if (mounted) setState(() => _status = '홈캠 재연결 요청 완료');
+    } catch (error) {
+      failed = true;
+      if (mounted) setState(() => _status = '자동 재연결 오류: $error');
+    } finally {
+      _reconnecting = false;
+    }
+    if (failed) _scheduleReconnect();
+  }
 
   @override
   void initState() {
@@ -576,6 +755,11 @@ class _ViewerScreenState extends State<ViewerScreen>
         if (mounted) setState(() => _status = value);
       },
       onRemoteEnded: () => unawaited(_stop(notifyRemote: false)),
+      onConnectionLost: _scheduleReconnect,
+      onConnectionEstablished: () {
+        _reconnectAttempts = 0;
+        _cancelReconnect();
+      },
     );
   }
 
@@ -639,6 +823,10 @@ class _ViewerScreenState extends State<ViewerScreen>
 
   Future<void> _start() async {
     if (_busy || _watching || _leaving) return;
+    _userStopped = false;
+    _viewerInBackground = false;
+    _reconnectAttempts = 0;
+    _cancelReconnect();
     setState(() {
       _busy = true;
       _status = '거치폰 연결 요청 중';
@@ -681,6 +869,8 @@ class _ViewerScreenState extends State<ViewerScreen>
     bool userPressedStop = false,
   }) async {
     if (_busy || _leaving) return;
+    _userStopped = true;
+    _cancelReconnect();
     final id = _rtc.sessionId;
     final viewingFor = DateTime.now().difference(
       _viewStartedAt ?? DateTime.now(),
@@ -729,6 +919,8 @@ class _ViewerScreenState extends State<ViewerScreen>
 
   Future<void> _leave() async {
     if (_leaving) return;
+    _userStopped = true;
+    _cancelReconnect();
     KyeobomFullscreenAds.instance.leaveViewer();
     setState(() => _leaving = true);
     final id = _rtc.sessionId;
@@ -755,7 +947,9 @@ class _ViewerScreenState extends State<ViewerScreen>
     final background = state == AppLifecycleState.paused ||
         state == AppLifecycleState.hidden ||
         state == AppLifecycleState.detached;
+    _viewerInBackground = background;
     if (background) {
+      _cancelReconnect();
       KyeobomFullscreenAds.instance.appBackgrounded();
     } else if (state == AppLifecycleState.resumed && !_watching && !_busy) {
       unawaited(KyeobomFullscreenAds.instance.appForegrounded());
@@ -769,6 +963,7 @@ class _ViewerScreenState extends State<ViewerScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     KyeobomFullscreenAds.instance.leaveViewer();
+    _cancelReconnect();
     _orientationTimer?.cancel();
     unawaited(_viewerAudio.detach());
     unawaited(_rtc.end());
