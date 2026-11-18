@@ -231,7 +231,8 @@ class KyeobomStationView extends StatelessWidget {
                   '대기 중 주변 소리 크기만 분석 · 녹음·전송 없음',
                   style: TextStyle(color: Colors.white38, fontSize: 10)),
                 value: babyEnabled,
-                onChanged: leaving || babyBusy || streaming
+                onChanged: leaving || babyBusy ||
+                        (streaming && !babyEnabled)
                     ? null : onBabyChanged,
                 activeTrackColor: KyeobomPalette.blue,
                 contentPadding: const EdgeInsets.symmetric(horizontal: 12),
