@@ -24,7 +24,7 @@ import AVFoundation
   private func startBabySoundMonitoring() throws {
     if babyAudioEngine != nil { return }
     let session = AVAudioSession.sharedInstance()
-    try session.setCategory(.record, mode: .measurement, options: [.mixWithOthers])
+    try session.setCategory(.record, mode: .measurement)
     try session.setActive(true)
     let engine = AVAudioEngine()
     let input = engine.inputNode
