@@ -242,9 +242,11 @@ class KyeobomStationView extends StatelessWidget {
           if (babyEnabled || babyStatus != null) ...[
             const SizedBox(height: 5),
             Text(
-              babyStatus ?? (babyRunning
-                  ? '소리 감지 중 · 감지 ${babyEventCount}회'
-                  : '실시간 영상 시청 중 · 소리 감지 일시정지'),
+              streaming && babyEnabled
+                  ? '실시간 영상 시청 중 · 소리 감지 일시정지'
+                  : babyEnabled && !babyRunning
+                      ? '소리 감지 준비/일시정지 · ${babyStatus ?? "마이크 확인 중"}'
+                      : babyStatus ?? '소리 감지 중 · 감지 ${babyEventCount}회',
               textAlign: TextAlign.center,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
