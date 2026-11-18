@@ -5,6 +5,7 @@ const {initializeApp} = require('firebase-admin/app');
 const {getFirestore} = require('firebase-admin/firestore');
 const {getMessaging} = require('firebase-admin/messaging');
 const {ALERTS, planHealthAlerts} = require('./health_alert_policy');
+const {approvedRecipients} = require('./health_recipient_policy');
 
 initializeApp();
 
@@ -42,24 +43,30 @@ exports.notifyOnHealthChange = onDocumentWritten(
 
     const db = getFirestore();
     const station = db.collection('homecamStations').doc(uid);
-    // Registration is created only by the viewer device after permission.
-    // A phone currently in station mode never gets its own alert.
+    // Unlike the original same-account P2 build, station and viewer have
+    // DIFFERENT Auth UIDs. Never notify a viewer after station revocation.
+    const approvedUid = (await station.get()).get('viewerUid');
+    if (typeof approvedUid !== 'string' || approvedUid.length === 0) return;
     const registrations = await station.collection('devices')
-      .where('role', '==', 'viewer')
+      .where('authUid', '==', approvedUid)
       .limit(MAX_VIEWERS)
       .get();
-    const receivers = registrations.docs
-      .map((doc) => ({ref: doc.ref, token: doc.get('fcmToken')}))
-      .filter((receiver) =>
-        typeof receiver.token === 'string' &&
-        receiver.token.length >= 20 &&
-        receiver.token.length <= 4096);
+    const receivers = approvedRecipients(registrations.docs.map((doc) => ({
+      ref: doc.ref,
+      authUid: doc.get('authUid'),
+      role: doc.get('role'),
+      fcmToken: doc.get('fcmToken'),
+    })), approvedUid).map((device) => ({
+      ref: device.ref, token: device.fcmToken,
+    }));
     if (receivers.length === 0) return;
 
     // Firestore triggers are at-least-once and can be delivered out of order.
     // A transaction serializes latching, and sample time rejects retries.
     const stateRef = station.collection('alertState').doc('health');
     const alerts = await db.runTransaction(async (transaction) => {
+      const currentStation = await transaction.get(station);
+      if (currentStation.get('viewerUid') !== approvedUid) return [];
       const previousSnapshot = await transaction.get(stateRef);
       const previous = previousSnapshot.data() || {};
       const last = previous.lastSampleAt?.toMillis?.() || 0;
@@ -75,6 +82,8 @@ exports.notifyOnHealthChange = onDocumentWritten(
 
     const messaging = getMessaging();
     for (const type of alerts) {
+      // An owner may revoke pairing between processing and FCM dispatch.
+      if ((await station.get()).get('viewerUid') !== approvedUid) return;
       const definition = ALERTS[type];
       if (!definition) continue;
       const response = await messaging.sendEachForMulticast({
