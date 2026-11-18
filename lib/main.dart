@@ -23,6 +23,7 @@ import 'homecam_session_housekeeping.dart';
 import 'device_health.dart';
 import 'device_health_policy.dart';
 import 'health_push_messaging.dart';
+import 'kyeobom_subscription_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -139,6 +140,17 @@ class RoleSelectionScreen extends StatelessWidget {
             subtitle: '다른 기기에 연결된 홈캠의 영상을\n실시간으로 확인할 수 있어요.',
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute<void>(builder: (_) => const ViewerScreen()),
+            ),
+          ),
+          const SizedBox(height: 14),
+          KyeobomRoleCard(
+            icon: Icons.workspace_premium_outlined,
+            title: '프리미엄 구독 및 관리',
+            subtitle: 'Google Play 구독 상품과 구매 복원, 구독 관리를 확인해요.',
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const KyeobomSubscriptionScreen(),
+              ),
             ),
           ),
           const SizedBox(height: 16),
