@@ -36,7 +36,7 @@ void main() {
     expect(toggled, true);
   });
 
-  testWidgets('sound monitoring is visibly indicated and cannot toggle while live',
+  testWidgets('sound monitoring can always be disabled while live',
       (tester) async {
     tester.view.physicalSize = const Size(1080, 2400);
     tester.view.devicePixelRatio = 3;
