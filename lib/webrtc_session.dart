@@ -126,6 +126,14 @@ class HomeCamWebRtcSession {
   String? get sessionId => _sessionId;
   bool get isVideoReduced => _reducedVideo;
 
+  /// Same already-open station camera track, for opt-in local event clips.
+  /// Never enables capture while the station is in standby.
+  MediaStreamTrack? get stationVideoTrack {
+    if (_closing || _viewer || _cameraStream == null) return null;
+    final tracks = _cameraStream!.getVideoTracks();
+    return tracks.isEmpty ? null : tracks.first;
+  }
+
   DocumentReference<Map<String, dynamic>> _session(String id) =>
       RemoteControl.instance.session(id);
 
