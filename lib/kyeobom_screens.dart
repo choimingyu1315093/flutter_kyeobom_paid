@@ -23,6 +23,12 @@ class KyeobomStationView extends StatelessWidget {
     this.autoMicrophoneBusy = false,
     this.onAutoMicrophoneChanged,
     this.onManagePairing,
+    this.eventRecordingEnabled = false,
+    this.eventRecordingBusy = false,
+    this.recordingEvent = false,
+    this.eventRecordingStatus,
+    this.onEventRecordingChanged,
+    this.onViewEventClips,
   });
 
   final String status;
@@ -34,6 +40,10 @@ class KyeobomStationView extends StatelessWidget {
   final bool autoMicrophoneEnabled, autoMicrophoneBusy;
   final ValueChanged<bool>? onAutoMicrophoneChanged;
   final VoidCallback? onManagePairing;
+  final bool eventRecordingEnabled, eventRecordingBusy, recordingEvent;
+  final String? eventRecordingStatus;
+  final ValueChanged<bool>? onEventRecordingChanged;
+  final VoidCallback? onViewEventClips;
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -75,7 +85,7 @@ class KyeobomStationView extends StatelessWidget {
             const SizedBox(height: 14),
             Text(
               streaming
-                  ? '카메라 ON · 마이크 ${microphoneOn ? "ON" : "OFF"} · 녹화 OFF'
+                  ? '카메라 ON · 마이크 ${microphoneOn ? "ON" : "OFF"} · 녹화 ${recordingEvent ? "ON" : "OFF"}'
                   : '카메라 OFF · 마이크 OFF · 녹화 OFF',
               style: const TextStyle(color: Colors.white24, fontSize: 11),
             ),
@@ -142,6 +152,45 @@ class KyeobomStationView extends StatelessWidget {
               ),
             ),
           ),
+        if (onEventRecordingChanged != null) ...[
+          const SizedBox(height: 8),
+          Container(
+            decoration: BoxDecoration(
+              color: const Color(0xFF0E1319),
+              border: Border.all(color: const Color(0xFF1E2832)),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: SwitchListTile.adaptive(
+              title: const Text('이벤트 자동 녹화',
+                style: TextStyle(color: Colors.white70, fontSize: 12)),
+              subtitle: const Text(
+                '선택 시 영상 시청 중 움직임만 감지 · 20초 영상 로컬 저장',
+                style: TextStyle(color: Colors.white38, fontSize: 10)),
+              value: eventRecordingEnabled,
+              onChanged: leaving || eventRecordingBusy
+                  ? null : onEventRecordingChanged,
+              activeTrackColor: KyeobomPalette.blue,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+            ),
+          ),
+          if (eventRecordingStatus != null) ...[
+            const SizedBox(height: 5),
+            Text(eventRecordingStatus!, textAlign: TextAlign.center,
+              maxLines: 2, overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: recordingEvent ? const Color(0xFFFFBE8B)
+                    : Colors.white38,
+                fontSize: 10)),
+          ],
+          if (onViewEventClips != null && !streaming)
+            TextButton.icon(
+              onPressed: leaving ? null : onViewEventClips,
+              icon: const Icon(Icons.video_library_outlined, size: 17),
+              label: const Text('저장된 이벤트 영상 보기',
+                  style: TextStyle(fontSize: 11)),
+              style: TextButton.styleFrom(foregroundColor: Colors.white70),
+            ),
+        ],
         if (microphoneMessage != null) ...[
           const SizedBox(height: 7),
           Text(microphoneMessage!,
