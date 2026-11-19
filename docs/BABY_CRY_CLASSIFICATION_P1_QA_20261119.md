@@ -9,7 +9,11 @@ The existing general sound detector and 90-second cooldown are independent.
 The official Google YAMNet model maps class 20 to Baby cry, infant cry.
 One 975ms mono window is resampled to 16kHz and evaluated on a single CPU
 thread in an isolate. A 0.45 starting score threshold and two positive
-windows are QA parameters, not calibrated probabilities or accuracy claims.
+windows among the last five valid predictions within six seconds
+are QA parameters, not calibrated probabilities or accuracy claims.
+Capture gaps over three seconds and invalid inputs clear evidence.
+Evidence collected during the 90-second cooldown cannot trigger a later event.
+QA UI shows recent evidence or cooldown seconds; logs show both.
 Separate cry candidate count/score displayed only on station. No pushes yet.
 
 Model binary is not in Git: the development environment could not access
@@ -52,3 +56,11 @@ After device QA and accuracy measurement, decide threshold and server
 push scope, then separately implement approved-viewer-only metadata/FCM
 and test security rules before any deployment. Existing Firestore rules,
 Cloud Functions, free repo and other paid baseline branches unchanged.
+
+## Intermittent-cry follow-up QA
+Android screenshot showed peak 0.8906, five threshold hits across 150 predictions,
+and zero events. This confirms high-score output but does not isolate the exact
+reason for rejection without per-frame logs. Retest three different cry clips
+at 1m with 90-second cooldown expired. Retest ordinary negative sounds after
+the policy change. If a clip fails, capture score/time sequence from
+KyeobomCryQA logs. Do not interpret 0.8906 as measured accuracy.

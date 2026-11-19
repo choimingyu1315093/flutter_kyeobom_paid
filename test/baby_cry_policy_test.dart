@@ -4,13 +4,38 @@ import 'package:flutter_home_camera/baby_cry_policy.dart';
 
 void main() {
   final now = DateTime(2026, 11, 19);
-  test('low score and one isolated high score are ignored', () {
+  test('intermittent high scores separated by a quiet breath trigger', () {
     final p = BabyCryPolicy();
     expect(p.observe(.05, now), false);
-    expect(p.observe(.95, now), false);
-    expect(p.observe(.20, now), false);
-    expect(p.observe(.95, now), false);
-    expect(p.observe(.95, now), true);
+    expect(p.observe(.89, now.add(const Duration(seconds: 1))), false);
+    expect(p.observe(.20, now.add(const Duration(seconds: 2))), false);
+    expect(p.observe(.60, now.add(const Duration(seconds: 3))), true);
+  });
+  test('single spike and isolated hits outside the last five windows do not trigger', () {
+    final p = BabyCryPolicy();
+    expect(p.observe(.89, now), false);
+    for (var second = 1; second <= 5; second++) {
+      expect(p.observe(.01, now.add(Duration(seconds: second))), false);
+    }
+    expect(p.observe(.8, now.add(const Duration(seconds: 6))), false);
+    expect(p.recentHits, 1);
+  });
+  test('evidence older than six seconds is discarded even within five windows', () {
+    final p = BabyCryPolicy();
+    expect(p.observe(.89, now), false);
+    expect(p.observe(.01, now.add(const Duration(seconds: 3))), false);
+    expect(p.observe(.01, now.add(const Duration(seconds: 6))), false);
+    expect(p.observe(.89, now.add(const Duration(seconds: 7))), false);
+    expect(p.recentHits, 1);
+  });
+  test('invalid score clears evidence and threshold remains 0.45', () {
+    final p = BabyCryPolicy();
+    expect(p.observe(.44, now), false);
+    expect(p.observe(.449, now.add(const Duration(seconds: 1))), false);
+    expect(p.recentHits, 0);
+    expect(p.observe(.9, now.add(const Duration(seconds: 2))), false);
+    expect(p.observe(double.nan, now.add(const Duration(seconds: 3))), false);
+    expect(p.observe(.9, now.add(const Duration(seconds: 4))), false);
   });
   test('cooldown and pause reset consecutive window evidence', () {
     final p = BabyCryPolicy();
@@ -57,14 +82,19 @@ void main() {
     expect(babyCryInputDbfs(Float32List.fromList(List.filled(15600, .5))),
         closeTo(-6.02, .01));
   });
-  test('diagnostic distinguishes streak and cooldown', () {
+  test('diagnostic distinguishes recent evidence and cooldown', () {
     final p = BabyCryPolicy();
     expect(p.observe(.5, now), false);
-    expect(p.streak, 1);
+    expect(p.recentHits, 1);
     expect(p.inCooldown(now), false);
     expect(p.observe(.5, now), true);
     expect(p.inCooldown(now), true);
+    expect(p.cooldownSecondsRemaining(now), 90);
+    expect(p.observe(.99, now.add(const Duration(seconds: 89))), false);
+    expect(p.recentHits, 0);
     expect(p.inCooldown(now.add(const Duration(seconds: 90))), false);
+    expect(p.observe(.99, now.add(const Duration(seconds: 90))), false);
+    expect(p.observe(.99, now.add(const Duration(seconds: 91))), true);
   });
   test('rejects wrong length, rate and non-finite audio', () {
     expect(babyCryResample(Float32List(10), 16000), isNull);

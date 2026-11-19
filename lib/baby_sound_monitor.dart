@@ -198,10 +198,12 @@ class BabySoundMonitor {
           'peak=${_cryPeak.toStringAsFixed(4)} rank=${inference.cryRank} '
           'top=${inference.topIndex}:${inference.topLabel}:${inference.topScore.toStringAsFixed(4)} '
           'inputDbFS=${db.toStringAsFixed(1)} rate=$rate inferenceMs=${timer.elapsedMilliseconds} '
-          'above=$_cryAbove streak=${_cryPolicy.streak} cooldown=$cooldownBefore event=$detected');
+          'above=$_cryAbove recentHits=${_cryPolicy.recentHits} cooldown=$cooldownBefore '
+          'remainingSec=${_cryPolicy.cooldownSecondsRemaining(now)} event=$detected');
       onCryStatus?.call(
           '울음 후보 $_cryEvents회 · 현재 ${score.toStringAsFixed(4)} · 최고 ${_cryPeak.toStringAsFixed(4)}\n'
-          '추론 $_cryFrames회 · 기준충족 $_cryAbove회 · 연속 ${_cryPolicy.streak}/2\n'
+          '추론 $_cryFrames회 · 기준충족 $_cryAbove회 · '
+          '${_cryPolicy.inCooldown(now) ? "재감지 ${_cryPolicy.cooldownSecondsRemaining(now)}초" : "최근 ${_cryPolicy.recentHits}/2"}\n'
           '입력 ${db.toStringAsFixed(0)} dBFS · TOP ${inference.topIndex} (${inference.topScore.toStringAsFixed(3)})');
     } catch (error) {
       debugPrint('[KyeobomCryQA] inference failed: $error');

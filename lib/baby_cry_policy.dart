@@ -12,43 +12,68 @@ class BabyCryPolicy {
     this.threshold = 0.45,
     this.requiredWindows = 2,
     this.cooldown = const Duration(seconds: 90),
-  });
+    this.evidenceWindow = const Duration(seconds: 6),
+    this.maxRecentWindows = 5,
+  }) : assert(requiredWindows > 0 && requiredWindows <= maxRecentWindows);
   final double threshold;
   final int requiredWindows;
   final Duration cooldown;
-  int _streak = 0;
+  final Duration evidenceWindow;
+  final int maxRecentWindows;
+  final List<({DateTime at, bool hit})> _recent = [];
   DateTime? _lastEvent;
   DateTime? _lastWindow;
 
-  int get streak => _streak;
-  bool inCooldown(DateTime now) {
+  int get recentHits => _recent.where((entry) => entry.hit).length;
+
+  int cooldownSecondsRemaining(DateTime now) {
     final last = _lastEvent;
-    return last != null && now.difference(last) < cooldown;
+    if (last == null) return 0;
+    final remaining = cooldown - now.difference(last);
+    return remaining.isNegative
+        ? 0
+        : (remaining.inMilliseconds / 1000).ceil();
   }
 
+  bool inCooldown(DateTime now) => cooldownSecondsRemaining(now) > 0;
+
+  /// Two positive windows in the most recent five valid windows, within
+  /// six seconds. A short quiet breath between cries does not erase a hit.
+  /// Invalid input, a capture gap or pause must not bridge evidence.
   bool observe(double score, DateTime now) {
     final previousWindow = _lastWindow;
     if (previousWindow != null &&
         (now.isBefore(previousWindow) ||
          now.difference(previousWindow) > const Duration(seconds: 3))) {
-      _streak = 0;
+      resetWindow();
     }
     _lastWindow = now;
-    if (!score.isFinite || score < threshold || score > 1) {
-      _streak = 0;
+    if (!score.isFinite || score < 0 || score > 1) {
+      resetWindow();
       return false;
     }
-    if (++_streak < requiredWindows) return false;
-    _streak = 0;
-    final last = _lastEvent;
-    if (last != null && now.difference(last) < cooldown) return false;
+    if (inCooldown(now)) {
+      // Do not carry evidence collected during cooldown into a new event.
+      _recent.clear();
+      return false;
+    }
+
+    _recent.removeWhere((entry) => now.difference(entry.at) > evidenceWindow);
+    final hit = score >= threshold;
+    _recent.add((at: now, hit: hit));
+    while (_recent.length > maxRecentWindows) {
+      _recent.removeAt(0);
+    }
+    if (!hit || recentHits < requiredWindows) return false;
+
+    _recent.clear();
     _lastEvent = now;
     return true;
   }
 
-  /// Pause/restore discards the previous consecutive-window evidence.
+  /// Pause/restore discards recent-window evidence but preserves cooldown.
   void resetWindow() {
-    _streak = 0;
+    _recent.clear();
     _lastWindow = null;
   }
 }
