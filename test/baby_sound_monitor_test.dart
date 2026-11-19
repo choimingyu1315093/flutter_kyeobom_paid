@@ -86,9 +86,13 @@ void main() {
     await monitor.start();
     await monitor.stop();
     await monitor.start(webRtcTrackId: 'station-audio');
+    expect(monitor.usingRtcAudio, true);
+    await monitor.start(); // Peer closes outside the manual toggle.
+    expect(monitor.usingRtcAudio, false);
     await monitor.stop();
     expect(calls, ['startBabySoundMonitoring', 'stopBabySoundMonitoring',
-      'startBabyRtcMonitoring', 'stopBabySoundMonitoring']);
+      'startBabyRtcMonitoring', 'stopBabySoundMonitoring',
+      'startBabySoundMonitoring', 'stopBabySoundMonitoring']);
     expect(monitor.running, false);
   });
 

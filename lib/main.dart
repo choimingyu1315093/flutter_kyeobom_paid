@@ -361,6 +361,9 @@ class _StationScreenState extends State<StationScreen>
         _microphoneOn = capturing;
         _microphoneMessage = message;
       });
+      if (!capturing && !_babySourceChanging && !_finishingStream) {
+        unawaited(_resumeBabyMonitoring());
+      }
     });
     _micSettingsReady = _loadMicSetting();
     _rtc = HomeCamWebRtcSession(
@@ -780,7 +783,9 @@ class _StationScreenState extends State<StationScreen>
     try {
       await _micTransition;
       await _events.stop();
-      if (_microphone.isOn || _microphoneBusy) await _babySound.stop();
+      if (_babySound.usingRtcAudio || _microphone.isOn || _microphoneBusy) {
+        await _babySound.stop();
+      }
       await _microphone.disable();
       if (_rtc.isRunning) await _rtc.end();
     } finally {
@@ -847,8 +852,8 @@ class _StationScreenState extends State<StationScreen>
       unawaited(_health?.refresh());
       if (!_streaming) {
         setState(() => _status = '연결 대기 중');
-        unawaited(_resumeBabyMonitoring());
       }
+      unawaited(_resumeBabyMonitoring());
     }
   }
 

@@ -40,11 +40,13 @@ class BabySoundMonitor {
   Timer? _poll;
   bool _enabled = false;
   bool _running = false;
+  String? _sourceTrackId;
   bool _sampling = false;
   int _events = 0;
 
   bool get enabled => _enabled;
   bool get running => _running;
+  bool get usingRtcAudio => _running && _sourceTrackId != null;
   int get eventCount => _events;
 
   void setEnabled(bool enabled) {
@@ -54,7 +56,19 @@ class BabySoundMonitor {
   Future<void> start({String? webRtcTrackId}) {
     final revision = _revision;
     return _enqueue(() async {
-    if (!_enabled || _running || _disposed || revision != _revision) return;
+    if (!_enabled || _disposed || revision != _revision) return;
+    if (_running) {
+      if (_sourceTrackId == webRtcTrackId) return;
+      // A WebRTC peer can close on its own. Reconcile any stale source
+      // before reopening the native capture, never run two microphones.
+      _cryActive = false;
+      _poll?.cancel();
+      _poll = null;
+      _running = false;
+      _sourceTrackId = null;
+      await _native.invokeMethod<void>('stopBabySoundMonitoring');
+      if (!_enabled || _disposed || revision != _revision) return;
+    }
     _cryActive = false;
     _cryPolicy.resetWindow();
     _cryEmptyPolls = 0;
@@ -91,6 +105,7 @@ class BabySoundMonitor {
       return;
     }
     _running = true;
+    _sourceTrackId = webRtcTrackId;
     _detector.reset();
     _poll = Timer.periodic(pollInterval, (_) => unawaited(_sample()));
     onStatus('아기 울음 감지 중');
@@ -106,10 +121,12 @@ class BabySoundMonitor {
     _poll = null;
     if (!_running) return;
     _running = false;
+    _sourceTrackId = null;
     try {
       await _native.invokeMethod<void>('stopBabySoundMonitoring');
     } finally {
       _detector.reset();
+      if (_enabled && !_disposed) onStatus('아기 울음 감지 준비 중');
     }
     });
   }
