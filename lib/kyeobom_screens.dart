@@ -32,9 +32,7 @@ class KyeobomStationView extends StatelessWidget {
     this.babyEnabled = false,
     this.babyBusy = false,
     this.babyRunning = false,
-    this.babyEventCount = 0,
     this.babyStatus,
-    this.babyCryQaStatus,
     this.onBabyChanged,
   });
 
@@ -52,9 +50,7 @@ class KyeobomStationView extends StatelessWidget {
   final ValueChanged<bool>? onEventRecordingChanged;
   final VoidCallback? onViewEventClips;
   final bool babyEnabled, babyBusy, babyRunning;
-  final int babyEventCount;
   final String? babyStatus;
-  final String? babyCryQaStatus;
   final ValueChanged<bool>? onBabyChanged;
 
   @override
@@ -227,15 +223,13 @@ class KyeobomStationView extends StatelessWidget {
             child: Material(
               type: MaterialType.transparency,
               child: SwitchListTile.adaptive(
-                title: const Text('베이비 모드 · 소리 변화 감지',
+                title: const Text('베이비 모드 · 아기 울음 감지',
                   style: TextStyle(color: Colors.white70, fontSize: 12)),
                 subtitle: const Text(
-                  '대기 중 주변 소리 크기만 분석 · 녹음·전송 없음',
+                  '아기 울음 감지 시 연결된 뷰어폰에 알림',
                   style: TextStyle(color: Colors.white38, fontSize: 10)),
                 value: babyEnabled,
-                onChanged: leaving || babyBusy ||
-                        (streaming && !babyEnabled)
-                    ? null : onBabyChanged,
+                onChanged: leaving || babyBusy ? null : onBabyChanged,
                 activeTrackColor: KyeobomPalette.blue,
                 contentPadding: const EdgeInsets.symmetric(horizontal: 12),
               ),
@@ -244,25 +238,14 @@ class KyeobomStationView extends StatelessWidget {
           if (babyEnabled || babyStatus != null) ...[
             const SizedBox(height: 5),
             Text(
-              streaming && babyEnabled
-                  ? '실시간 영상 시청 중 · 소리 감지 일시정지'
-                  : babyEnabled && !babyRunning
-                      ? '소리 감지 준비/일시정지 · ${babyStatus ?? "마이크 확인 중"}'
-                      : babyStatus ?? '소리 감지 중 · 감지 ${babyEventCount}회',
+              babyEnabled && babyRunning
+                  ? (babyStatus ?? '아기 울음 감지 중')
+                  : (babyStatus ?? '아기 울음 감지 준비 중'),
               textAlign: TextAlign.center,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(color: Colors.white54, fontSize: 10),
             ),
-            if (babyCryQaStatus != null)
-              Text(babyCryQaStatus!, textAlign: TextAlign.center,
-                maxLines: 3, overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: Colors.lightBlueAccent, fontSize: 10)),
-            if (babyEventCount > 0)
-              Text('소리 변화 감지 ${babyEventCount}회 · 거치폰 내부에서만 표시',
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: Color(0xFFFFBE8B), fontSize: 10)),
           ],
         ],
         if (microphoneMessage != null) ...[

@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import 'baby_sound_policy.dart';
@@ -17,33 +16,23 @@ class BabySoundMonitor {
     required this.onStatus,
     required this.onDetection,
     this.enableCryQa = false,
-    this.onCryStatus,
+    this.onCryDetected,
   });
 
   static const MethodChannel _native = MethodChannel('home_camera/screen');
   static const pollInterval = Duration(milliseconds: 500);
-  static const _gainQa = bool.fromEnvironment('KYEOBOM_CRY_GAIN_QA', defaultValue: true);
 
   final void Function(String) onStatus;
   final void Function(int count) onDetection;
   final BabySoundDetector _detector = BabySoundDetector();
   final bool enableCryQa;
-  final void Function(String)? onCryStatus;
+  final void Function()? onCryDetected;
   final BabyCryPolicy _cryPolicy = BabyCryPolicy();
   BabyCryClassifier? _cryClassifier;
   Future<void>? _cryPending;
   bool _cryActive = false;
   bool _disposed = false;
   int _revision = 0;
-  int _cryEvents = 0;
-  int _cryFrames = 0;
-  int _cryAbove = 0;
-  int _cryCorroborated = 0;
-  int _cryGainRuns = 0;
-  int _cryGainHits = 0;
-  double _cryRawPeak = 0;
-  final Stopwatch _cryClock = Stopwatch();
-  double _cryPeak = 0;
   int _cryEmptyPolls = 0;
 
   Future<void> _operations = Future<void>.value();
@@ -61,20 +50,12 @@ class BabySoundMonitor {
     _enabled = enabled;
   }
 
-  Future<void> start() {
+  Future<void> start({String? webRtcTrackId}) {
     final revision = _revision;
     return _enqueue(() async {
     if (!_enabled || _running || _disposed || revision != _revision) return;
     _cryActive = false;
     _cryPolicy.resetWindow();
-    _cryFrames = 0;
-    _cryAbove = 0;
-    _cryCorroborated = 0;
-    _cryGainRuns = 0;
-    _cryGainHits = 0;
-    _cryRawPeak = 0;
-    _cryClock..reset()..start();
-    _cryPeak = 0;
     _cryEmptyPolls = 0;
     if (enableCryQa) {
       try {
@@ -82,11 +63,11 @@ class BabySoundMonitor {
         await classifier.initialize();
         if (_disposed || revision != _revision || !_enabled) return;
         _cryActive = true;
-        onCryStatus?.call('울음 판별 QA 준비 완료');
+
       } catch (error) {
         if (!_disposed && revision == _revision && _enabled) {
-          debugPrint('[KyeobomCryQA] initialize failed: $error');
-          onCryStatus?.call('울음 모델 로드 실패 · 일반 소리 감지만 동작');
+          onStatus('아기 울음 감지 모델을 시작하지 못했어요.');
+          rethrow;
         }
       }
     }
@@ -94,8 +75,13 @@ class BabySoundMonitor {
       _cryActive = false;
       return;
     }
-    await _native.invokeMethod<void>(
-        'startBabySoundMonitoring', _cryActive ? {'cryQa': true} : null);
+    if (webRtcTrackId != null) {
+      await _native.invokeMethod<void>('startBabyRtcMonitoring',
+          {'trackId': webRtcTrackId});
+    } else {
+      await _native.invokeMethod<void>(
+          'startBabySoundMonitoring', _cryActive ? {'cryQa': true} : null);
+    }
     // A disable request may have arrived during permission/native setup.
     if (!_enabled || _disposed || revision != _revision) {
       _cryActive = false;
@@ -105,18 +91,14 @@ class BabySoundMonitor {
     _running = true;
     _detector.reset();
     _poll = Timer.periodic(pollInterval, (_) => unawaited(_sample()));
-    onStatus('베이비 모드 · 주변 소리 변화 감지 중 (녹음·전송 없음)');
+    onStatus('아기 울음 감지 중');
     });
   }
 
   Future<void> stop() {
     ++_revision;
     _cryActive = false;
-    _cryClock.stop();
     _cryPolicy.resetWindow();
-    if (enableCryQa && !_disposed) {
-      onCryStatus?.call('울음 판별 QA 일시정지 · $_cryEvents회');
-    }
     return _enqueue(() async {
     _poll?.cancel();
     _poll = null;
@@ -149,7 +131,7 @@ class BabySoundMonitor {
       if (_detector.observe(db, DateTime.now())) {
         _events++;
         onDetection(_events);
-        onStatus('소리 변화 감지 · 현재 대기 화면에서 확인 가능');
+
       }
       if (_cryActive && _cryPending == null) {
         final task = _sampleCry(_revision);
@@ -173,8 +155,7 @@ class BabySoundMonitor {
       if (window == null) {
         if (++_cryEmptyPolls >= 10) {
           _cryEmptyPolls = 0;
-          debugPrint('[KyeobomCryQA] no complete PCM window (10 polls)');
-          onCryStatus?.call('울음 QA 입력 대기 · 추론 $_cryFrames회');
+          onStatus('마이크 입력을 확인하고 있어요.');
         }
         return;
       }
@@ -183,27 +164,22 @@ class BabySoundMonitor {
       final rate = window['rate'];
       if (pcm is! Float32List || rate is! int) {
         _cryPolicy.resetWindow();
-        debugPrint('[KyeobomCryQA] invalid PCM types');
-        onCryStatus?.call('울음 QA 입력 형식 오류');
+        onStatus('마이크 입력을 확인해 주세요.');
         return;
       }
       final frame = babyCryResample(pcm, rate);
       if (frame == null) {
         _cryPolicy.resetWindow();
-        debugPrint('[KyeobomCryQA] invalid window rate=$rate length=${pcm.length}');
-        onCryStatus?.call('울음 QA 입력 길이 오류');
+        onStatus('마이크 입력을 확인해 주세요.');
         return;
       }
-      final timer = Stopwatch()..start();
-      final db = babyCryInputDbfs(frame);
       final raw = await _cryClassifier!.classify(frame);
       if (!_running || !_cryActive || !_enabled || revision != _revision) return;
       BabyCryGainFrame? gainFrame;
       BabyCryInference? boosted;
       // Original inference always runs first. No new microphone path and no
       // second policy observation for a transformed copy of the same window.
-      if (_gainQa &&
-          !_cryPolicy.inCooldown(DateTime.now()) &&
+      if (!_cryPolicy.inCooldown(DateTime.now()) &&
           _cryPolicy.evidenceFor(raw) != BabyCryEvidence.strong) {
         gainFrame = prepareBabyCryGain(frame);
         if (gainFrame != null) {
@@ -211,58 +187,25 @@ class BabySoundMonitor {
             boosted = await _cryClassifier!.classify(gainFrame.samples);
           } catch (error) {
             // A fallback failure must not discard the original prediction.
-            debugPrint('[KyeobomCryQA] gain fallback failed: $error');
+            // Use the original inference for this window.
           }
         }
       }
-      timer.stop();
       if (!_running || !_cryActive || !_enabled || revision != _revision) return;
-      if (gainFrame != null) _cryGainRuns++;
       final inference = selectBabyCryInference(
           policy: _cryPolicy, raw: raw, boosted: boosted);
-      final gainUsed = boosted != null && identical(inference, boosted);
-      if (gainUsed) _cryGainHits++;
-      if (raw.cryScore > _cryRawPeak) _cryRawPeak = raw.cryScore;
-      final score = inference.cryScore;
-      _cryFrames++;
-      if (score > _cryPeak) _cryPeak = score;
-      if (score >= _cryPolicy.threshold) _cryAbove++;
-      final now = DateTime.now();
-      final cooldownBefore = _cryPolicy.inCooldown(now);
-      final evidence = _cryPolicy.evidenceFor(inference);
-      if (score < _cryPolicy.threshold &&
-          evidence != BabyCryEvidence.none) _cryCorroborated++;
-      final detected = _cryPolicy.observeInference(inference, now);
-      if (detected) _cryEvents++;
-      debugPrint('[KyeobomCryQA] frame=$_cryFrames cry=${score.toStringAsFixed(4)} '
-          'peak=${_cryPeak.toStringAsFixed(4)} rank=${inference.cryRank} '
-          'top=${inference.topIndex}:${inference.topLabel}:${inference.topScore.toStringAsFixed(4)} '
-          'inputDbFS=${db.toStringAsFixed(1)} rate=$rate inferenceMs=${timer.elapsedMilliseconds} '
-          'rawCry=${raw.cryScore.toStringAsFixed(4)} rawPeak=${_cryRawPeak.toStringAsFixed(4)} '
-          'rawTop=${raw.topIndex} rawRank=${raw.cryRank} '
-          'gain=${gainFrame?.gain.toStringAsFixed(2) ?? "1.00"} '
-          'gainDbFS=${gainFrame?.outputDbfs.toStringAsFixed(1) ?? "-"} '
-          'gainCry=${boosted?.cryScore.toStringAsFixed(4) ?? "-"} '
-          'gainTop=${boosted?.topIndex ?? "-"} gainRank=${boosted?.cryRank ?? "-"} '
-          'gainUsed=$gainUsed gainRuns=$_cryGainRuns gainHits=$_cryGainHits '
-          'above=$_cryAbove corroborated=$_cryCorroborated evidence=${evidence.name} '
-          'elapsedMs=${_cryClock.elapsedMilliseconds} recentHits=${_cryPolicy.recentHits} '
-          'strongHits=${_cryPolicy.recentStrongHits} cooldown=$cooldownBefore '
-          'remainingSec=${_cryPolicy.cooldownSecondsRemaining(now)} event=$detected');
-      onCryStatus?.call(
-          '울음 후보 $_cryEvents회 · 현재 ${score.toStringAsFixed(4)} · 최고 ${_cryPeak.toStringAsFixed(4)}\n'
-          '추론 $_cryFrames회 · 직접 $_cryAbove회 · 보조 $_cryCorroborated회 · '
-          '${_cryPolicy.inCooldown(now) ? "재감지 ${_cryPolicy.cooldownSecondsRemaining(now)}초" : "최근 ${_cryPolicy.recentHits}/2"}\n'
-          '입력 ${db.toStringAsFixed(0)} dBFS · 증폭 $_cryGainHits/$_cryGainRuns · TOP ${inference.topIndex}');
+      if (_cryPolicy.observeInference(inference, DateTime.now())) {
+        onCryDetected?.call();
+      }
     } catch (error) {
-      debugPrint('[KyeobomCryQA] inference failed: $error');
+
       if (revision == _revision && _cryActive) {
         _cryActive = false;
         _cryPolicy.resetWindow();
         // Stop collecting waveform windows while keeping P0 dB monitoring.
         try { await _native.invokeMethod<void>('disableBabyCryCapture'); } catch (_) {}
         if (revision == _revision) {
-          onCryStatus?.call('울음 추론 오류 · 일반 소리 감지만 동작');
+          onStatus('아기 울음 감지 오류 · 베이비 모드를 다시 켜 주세요.');
         }
       }
     }

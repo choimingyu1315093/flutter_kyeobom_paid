@@ -312,9 +312,8 @@ class _StationScreenState extends State<StationScreen>
   bool _babyEnabled = false;
   bool _babyBusy = false;
   String? _babyStatus;
-  int _babyEvents = 0;
-  static const _babyCryQa = bool.fromEnvironment('KYEOBOM_CRY_QA');
-  String? _babyCryStatus;
+  bool _babySourceChanging = false;
+  int _babyConsentRevision = 0;
   Future<void> _commandQueue = Future<void>.value();
 
   String _status = '연결 대기 준비 중';
@@ -346,16 +345,12 @@ class _StationScreenState extends State<StationScreen>
     );
     _eventSettingsReady = _loadEventSetting();
     _babySound = BabySoundMonitor(
-      enableCryQa: _babyCryQa,
-      onCryStatus: (status) {
-        if (mounted && !_leaving) setState(() => _babyCryStatus = status);
-      },
+      enableCryQa: true,
+      onCryDetected: () => unawaited(_publishBabyCry()),
       onStatus: (status) {
         if (mounted && !_leaving) setState(() => _babyStatus = status);
       },
-      onDetection: (count) {
-        if (mounted && !_leaving) setState(() => _babyEvents = count);
-      },
+      onDetection: (_) {},
     );
     _babySettingsReady = _loadBabySetting();
     _microphone = StationMicrophone(onState: (capturing, message) {
@@ -404,12 +399,11 @@ class _StationScreenState extends State<StationScreen>
   }
 
   Future<void> _resumeBabyMonitoring() async {
-    if (!mounted || _leaving || !_foreground || _streaming ||
-        _preparingStream || _rtc.isRunning || !_babyEnabled || !_babySound.enabled ||
-        _latestHealth?.shouldReduceVideo == true ||
+    if (!mounted || _leaving || !_foreground || _babySourceChanging ||
+        !_babyEnabled || !_babySound.enabled ||
         _latestHealth?.shouldStopVideo == true) return;
     try {
-      await _babySound.start();
+      await _babySound.start(webRtcTrackId: _microphone.audioTrackId);
       if (mounted) setState(() {});
     } catch (error) {
       if (mounted) {
@@ -418,26 +412,49 @@ class _StationScreenState extends State<StationScreen>
     }
   }
 
+  Future<void> _publishBabyCry() async {
+    final revision = _babyConsentRevision;
+    final detectedAt = DateTime.now();
+    if (!mounted || _leaving || !_foreground || !_babyEnabled ||
+        !_babySound.enabled) return;
+    try {
+      final control = RemoteControl.instance;
+      if (!control.isStationIdentity) return;
+      final station = control.station;
+      final snapshot = await station.get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 8));
+      final viewerUid = snapshot.data()?['viewerUid'];
+      if (viewerUid is! String || viewerUid.isEmpty ||
+          snapshot.data()?['onlineHint'] != true ||
+          !mounted || _leaving || !_foreground || !_babyEnabled ||
+          !_babySound.enabled || revision != _babyConsentRevision ||
+          FirebaseAuth.instance.currentUser?.uid != station.id) return;
+      await station.collection('telemetry').doc('babyCry').set({
+        'viewerUid': viewerUid,
+        'detectedAt': Timestamp.fromDate(detectedAt),
+        'receivedAt': FieldValue.serverTimestamp(),
+      }).timeout(const Duration(seconds: 8));
+    } catch (_) {
+      if (mounted && !_leaving && _babyEnabled) {
+        setState(() => _babyStatus = '알림 전송 실패 · 인터넷 연결을 확인해 주세요.');
+      }
+    }
+  }
+
   Future<void> _setBabyEnabled(bool enabled) async {
-    // Turning OFF is always allowed (withdraw consent immediately).
-    // Turning ON during a live WebRTC session would compete for the mic.
-    if (_babyBusy || _leaving ||
-        (enabled && (_streaming || _preparingStream || _rtc.isRunning))) return;
+    if (_babyBusy || _leaving || (enabled && _babySourceChanging)) return;
+    ++_babyConsentRevision;
     setState(() => _babyBusy = true);
     try {
       // Permission is requested ONLY after deliberate station-side opt-in.
       // The temporary WebRTC permission track is released immediately.
-      if (enabled) await StationMicrophone.preparePermission();
+      if (enabled && !_microphone.isOn) await StationMicrophone.preparePermission();
       _babySound.setEnabled(enabled);
       if (!enabled) await _babySound.stop();
       await _micPreferences.setBool(_babyAutoKey, enabled);
       if (mounted) setState(() {
         _babyEnabled = enabled;
-        _babyStatus = enabled
-            ? (_streaming
-                ? '영상 시청 중 감지 일시중지 · 대기 복귀 시 자동 재개'
-                : '베이비 모드 준비 중 · 소리 변화만 감지합니다')
-            : '베이비 모드 OFF · 대기 중 마이크 사용 안 함';
+        _babyStatus = enabled ? '아기 울음 감지 준비 중' : null;
       });
       if (enabled) await _resumeBabyMonitoring();
     } catch (error) {
@@ -504,9 +521,9 @@ class _StationScreenState extends State<StationScreen>
   void _onHealthSample(DeviceHealthSnapshot snapshot) {
     if (!mounted || _leaving) return;
     setState(() => _latestHealth = snapshot);
-    if (snapshot.shouldReduceVideo || snapshot.shouldStopVideo) {
+    if (snapshot.shouldStopVideo) {
       unawaited(_babySound.stop().catchError((Object _) {}));
-    } else if (_babyEnabled && !_streaming) {
+    } else if (_babyEnabled) {
       unawaited(_resumeBabyMonitoring());
     }
     // Recording has a lower priority than thermals, battery and video.
@@ -668,12 +685,10 @@ class _StationScreenState extends State<StationScreen>
     _preparingStream = true;
     try {
       if (mounted) setState(() => _status = '원격 연결 준비 중');
-      // Free the sound-only native mic BEFORE opening the live camera and
-      // any optional WebRTC audio. Detection failure must not block video.
-      try { await _babySound.stop(); } catch (error) {
-        if (mounted) setState(() => _babyStatus = '소리 감지 중지 오류: $error');
-      }
+      // Video-only WebRTC never opens an audio track. Keep baby capture on.
       if (_rtc.isRunning && _rtc.sessionId != sessionId) {
+        _babySourceChanging = true;
+        await _babySound.stop();
         // Finalize any clip BEFORE the previous camera track is released.
         await _events.stop();
         await _microphone.disable();
@@ -719,9 +734,8 @@ class _StationScreenState extends State<StationScreen>
       await RemoteControl.instance.acknowledge(id, 'error: $error');
     } finally {
       _preparingStream = false;
-      if (mounted && !_streaming && _foreground) {
-        unawaited(_resumeBabyMonitoring());
-      }
+      _babySourceChanging = false;
+      if (mounted && _foreground) unawaited(_resumeBabyMonitoring());
     }
   }
 
@@ -730,7 +744,9 @@ class _StationScreenState extends State<StationScreen>
     final sessionId = _rtc.sessionId;
     if (sessionId == null) return;
     setState(() => _microphoneBusy = true);
+    _babySourceChanging = true;
     try {
+      await _babySound.stop();
       if (_microphone.isOn) {
         await _microphone.disable();
       } else {
@@ -739,14 +755,22 @@ class _StationScreenState extends State<StationScreen>
     } catch (error) {
       if (mounted) setState(() => _microphoneMessage = '마이크 오류: $error');
     } finally {
+      _babySourceChanging = false;
       if (mounted) setState(() => _microphoneBusy = false);
+      await _resumeBabyMonitoring();
     }
   }
 
   Future<void> _finishStream() async {
-    await _events.stop();
-    await _microphone.disable();
-    if (_rtc.isRunning) await _rtc.end();
+    _babySourceChanging = true;
+    try {
+      await _events.stop();
+      if (_microphone.isOn || _microphoneBusy) await _babySound.stop();
+      await _microphone.disable();
+      if (_rtc.isRunning) await _rtc.end();
+    } finally {
+      _babySourceChanging = false;
+    }
     if (mounted && !_leaving) {
       setState(() {
         _streaming = false;
@@ -853,9 +877,7 @@ class _StationScreenState extends State<StationScreen>
           babyEnabled: _babyEnabled,
           babyBusy: _babyBusy,
           babyRunning: _babySound.running,
-          babyEventCount: _babyEvents,
           babyStatus: _babyStatus,
-          babyCryQaStatus: _babyCryQa && _babyEnabled ? _babyCryStatus : null,
           onBabyChanged: (enabled) => unawaited(_setBabyEnabled(enabled)),
           autoMicrophoneEnabled: _micAutoEnabled,
           autoMicrophoneBusy: _micSettingsBusy,

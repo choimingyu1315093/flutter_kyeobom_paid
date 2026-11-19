@@ -26,7 +26,7 @@ void main() {
       onEventRecordingChanged: (_) {},
       onViewEventClips: () {},
     )));
-    await tester.ensureVisible(find.text('베이비 모드 · 소리 변화 감지'));
+    await tester.ensureVisible(find.text('베이비 모드 · 아기 울음 감지'));
     expect(tester.takeException(), isNull);
     expect(find.textContaining('카메라 OFF · 마이크 OFF'), findsOneWidget);
     final babySwitch = tester.widgetList<SwitchListTile>(
@@ -54,7 +54,6 @@ void main() {
       onToggleMicrophone: () {},
       babyEnabled: true,
       babyRunning: false,
-      babyEventCount: 2,
       onBabyChanged: (enabled) => revokedConsent = enabled,
     )));
     final babySwitch = tester.widgetList<SwitchListTile>(
@@ -62,7 +61,7 @@ void main() {
     expect(babySwitch.onChanged, isNotNull);
     babySwitch.onChanged?.call(false);
     expect(revokedConsent, false);
-    expect(find.textContaining('소리 변화 감지 2회'), findsOneWidget);
+    expect(find.textContaining('소리 변화 감지 2회'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 }

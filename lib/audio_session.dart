@@ -66,6 +66,10 @@ class StationMicrophone {
   final List<RTCIceCandidate> _pendingCandidates = [];
 
   bool get isOn => _stream != null;
+  String? get audioTrackId {
+    final tracks = _stream?.getAudioTracks();
+    return tracks == null || tracks.isEmpty ? null : tracks.first.id;
+  }
 
   Future<void> enable(String sessionId) async {
     if (_startFuture != null) {
