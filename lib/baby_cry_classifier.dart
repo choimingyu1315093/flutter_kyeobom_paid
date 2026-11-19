@@ -9,8 +9,6 @@ class BabyCryClassifier {
   static const modelAsset = 'assets/baby_cry/yamnet.tflite';
   Interpreter? _interpreter;
   IsolateInterpreter? _worker;
-  bool _inputBatched = false;
-  bool _outputBatched = false;
 
   Future<void> initialize() async {
     if (_worker != null) return;
@@ -30,11 +28,16 @@ class BabyCryClassifier {
           !shapeMatches(outputs.first.shape, BabyCryPolicy.classCount)) {
         throw StateError('Unexpected YAMNet tensor signature');
       }
-      _inputBatched = inputs.first.shape.length == 2;
-      _outputBatched = outputs.first.shape.length == 2;
       _worker = await IsolateInterpreter.create(address: interpreter.address);
       _interpreter = interpreter;
+      // Check actual inference/output transfer with a synthetic silence frame.
+      // A valid YAMNet prediction can have tiny cry scores, but not an
+      // untouched or entirely zero 521-class vector.
+      await classify(Float32List(BabyCryPolicy.inputSamples));
     } catch (_) {
+      await _worker?.close();
+      _worker = null;
+      _interpreter = null;
       interpreter?.close();
       rethrow;
     } finally {
@@ -47,14 +50,15 @@ class BabyCryClassifier {
     if (worker == null || frame.length != BabyCryPolicy.inputSamples) {
       throw StateError('Cry model/frame is not ready');
     }
-    // Explicit nested lists preserve the verified input/output tensor rank.
-    final values = frame.toList(growable: false);
-    final result = List<double>.filled(BabyCryPolicy.classCount, 0);
-    await worker.run(
-      _inputBatched ? [values] : values,
-      _outputBatched ? [result] : result,
-    );
-    return BabyCryInference.fromScores(result);
+    // Tensor shapes/dtypes were checked at initialization. Use contiguous
+    // buffers instead of nested lists: Tensor.copyTo may replace an inner
+    // list, leaving a separately retained reference unchanged. ByteBuffer
+    // is explicitly copied into caller-owned memory by tflite_flutter 0.12.1.
+    final input = Float32List.fromList(frame);
+    final output = Float32List(BabyCryPolicy.classCount);
+    output.fillRange(0, output.length, double.nan);
+    await worker.run(input.buffer, output.buffer);
+    return BabyCryInference.fromScores(output);
   }
 
   Future<void> close() async {

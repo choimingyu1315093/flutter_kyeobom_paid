@@ -89,6 +89,9 @@ class BabyCryInference {
         scores.any((s) => !s.isFinite || s < 0 || s > 1)) {
       throw StateError('Invalid YAMNet output scores');
     }
+    if (scores.every((s) => s == 0)) {
+      throw StateError('All YAMNet scores are zero; output invalid');
+    }
     final cry = scores[BabyCryPolicy.cryClassIndex];
     var top = 0;
     for (var i = 1; i < scores.length; i++) {

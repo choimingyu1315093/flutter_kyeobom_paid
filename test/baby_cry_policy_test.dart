@@ -48,6 +48,9 @@ void main() {
     expect(result.topIndex, 0);
     expect(result.topLabel, 'Speech');
     expect(() => BabyCryInference.fromScores([.1]), throwsStateError);
+    expect(() => BabyCryInference.fromScores(Float32List(521)), throwsStateError);
+    expect(() => BabyCryInference.fromScores(
+        Float32List(521)..fillRange(0, 521, double.nan)), throwsStateError);
   });
   test('RMS reports normalized waveform level and silence', () {
     expect(babyCryInputDbfs(Float32List(15600)), -100);

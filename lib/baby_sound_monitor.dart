@@ -73,7 +73,7 @@ class BabySoundMonitor {
         onCryStatus?.call('울음 판별 QA 준비 완료');
       } catch (error) {
         if (!_disposed && revision == _revision && _enabled) {
-          debugPrint('[KyeobomCryQA] initialize failed: ${error.runtimeType}');
+          debugPrint('[KyeobomCryQA] initialize failed: $error');
           onCryStatus?.call('울음 모델 로드 실패 · 일반 소리 감지만 동작');
         }
       }
@@ -200,10 +200,11 @@ class BabySoundMonitor {
           'inputDbFS=${db.toStringAsFixed(1)} rate=$rate inferenceMs=${timer.elapsedMilliseconds} '
           'above=$_cryAbove streak=${_cryPolicy.streak} cooldown=$cooldownBefore event=$detected');
       onCryStatus?.call(
-          '울음 후보 $_cryEvents회 · 현재 ${score.toStringAsFixed(3)} · 최고 ${_cryPeak.toStringAsFixed(3)}\n'
-          '추론 $_cryFrames회 · 기준충족 $_cryAbove회 · 연속 ${_cryPolicy.streak}/2');
+          '울음 후보 $_cryEvents회 · 현재 ${score.toStringAsFixed(4)} · 최고 ${_cryPeak.toStringAsFixed(4)}\n'
+          '추론 $_cryFrames회 · 기준충족 $_cryAbove회 · 연속 ${_cryPolicy.streak}/2\n'
+          '입력 ${db.toStringAsFixed(0)} dBFS · TOP ${inference.topIndex} (${inference.topScore.toStringAsFixed(3)})');
     } catch (error) {
-      debugPrint('[KyeobomCryQA] inference failed: ${error.runtimeType}');
+      debugPrint('[KyeobomCryQA] inference failed: $error');
       if (revision == _revision && _cryActive) {
         _cryActive = false;
         _cryPolicy.resetWindow();
