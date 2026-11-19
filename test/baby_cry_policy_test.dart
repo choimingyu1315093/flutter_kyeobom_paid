@@ -11,21 +11,21 @@ void main() {
     expect(p.observe(.20, now.add(const Duration(seconds: 2))), false);
     expect(p.observe(.60, now.add(const Duration(seconds: 3))), true);
   });
-  test('single spike and isolated hits outside the last five windows do not trigger', () {
+  test('single spike and isolated hits outside the last seven windows do not trigger', () {
     final p = BabyCryPolicy();
     expect(p.observe(.89, now), false);
-    for (var second = 1; second <= 5; second++) {
+    for (var second = 1; second <= 7; second++) {
       expect(p.observe(.01, now.add(Duration(seconds: second))), false);
     }
-    expect(p.observe(.8, now.add(const Duration(seconds: 6))), false);
+    expect(p.observe(.8, now.add(const Duration(seconds: 8))), false);
     expect(p.recentHits, 1);
   });
-  test('evidence older than six seconds is discarded even within five windows', () {
+  test('evidence older than eight seconds is discarded even within seven windows', () {
     final p = BabyCryPolicy();
     expect(p.observe(.89, now), false);
     expect(p.observe(.01, now.add(const Duration(seconds: 3))), false);
     expect(p.observe(.01, now.add(const Duration(seconds: 6))), false);
-    expect(p.observe(.89, now.add(const Duration(seconds: 7))), false);
+    expect(p.observe(.89, now.add(const Duration(seconds: 9))), false);
     expect(p.recentHits, 1);
   });
   test('invalid score clears evidence and threshold remains 0.45', () {
@@ -53,6 +53,46 @@ void main() {
     expect(p.observe(.9, now), false);
     expect(p.observe(.9, now.add(const Duration(seconds: 10))), false);
     expect(p.observe(.9, now.add(const Duration(seconds: 11))), true);
+  });
+  BabyCryInference prediction(double cry, double top, {int index = 19, int rank = 2}) =>
+      BabyCryInference(cryScore: cry, topIndex: index, topScore: top,
+          cryRank: rank);
+  test('two strong overlapping baby and sobbing predictions count as one event', () {
+    final p = BabyCryPolicy();
+    expect(p.observeInference(prediction(.41, .58), now), false);
+    expect(p.observe(.01, now.add(const Duration(seconds: 1))), false);
+    expect(p.observe(.01, now.add(const Duration(seconds: 2))), false);
+    expect(p.observeInference(prediction(.33, .41), now.add(const Duration(seconds: 3))), true);
+    expect(p.observeInference(prediction(.41, .58), now.add(const Duration(seconds: 4))), false);
+  });
+  test('strong hit and later supporting hit survive five-frame separation', () {
+    final p = BabyCryPolicy();
+    expect(p.observeInference(prediction(.41, .58), now), false);
+    for (var second = 1; second <= 4; second++) {
+      expect(p.observe(.01, now.add(Duration(seconds: second))), false);
+    }
+    expect(p.observeInference(prediction(.19, .26), now.add(const Duration(seconds: 5))), true);
+  });
+  test('a supporting pair without strong evidence never triggers', () {
+    final p = BabyCryPolicy();
+    for (var second = 0; second < 10; second++) {
+      expect(p.observeInference(prediction(.20, .81), now.add(Duration(seconds: second))), false);
+    }
+    expect(p.recentStrongHits, 0);
+  });
+  test('sobbing without baby evidence, speech, low ranked and weak top scores are rejected', () {
+    final p = BabyCryPolicy();
+    final negatives = [
+      prediction(.02, .90),
+      prediction(.29, .90, rank: 4),
+      prediction(.34, .90, index: 0),
+      prediction(.19, .23),
+      prediction(.01, .90, index: 494),
+    ];
+    for (var i = 0; i < negatives.length; i++) {
+      expect(p.observeInference(negatives[i], now.add(Duration(seconds: i))), false);
+    }
+    expect(p.recentHits, 0);
   });
   test('converts 16k and 48k mono device input to fixed float waveform', () {
     final mono = Float32List.fromList(List.filled(15600, .25));

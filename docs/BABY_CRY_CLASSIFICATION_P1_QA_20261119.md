@@ -8,9 +8,15 @@ The existing general sound detector and 90-second cooldown are independent.
 
 The official Google YAMNet model maps class 20 to Baby cry, infant cry.
 One 975ms mono window is resampled to 16kHz and evaluated on a single CPU
-thread in an isolate. A 0.45 starting score threshold and two positive
-windows among the last five valid predictions within six seconds
-are QA parameters, not calibrated probabilities or accuracy claims.
+thread in an isolate. The direct class-20 score threshold remains 0.45.
+When class 19 is top (score >= 0.25), class 20 is ranked 1–3 and its
+score is >= 0.18, the prediction corroborates baby cry. The corroborated
+score must be >= 0.30 to count as strong evidence; a direct hit is also strong.
+Require two distinct hits including one strong among the last seven
+valid predictions within eight seconds. Class 19 alone is insufficient.
+These are QA parameters, not calibrated probabilities or accuracy claims.
+Adult crying can still be a false positive; explicitly test it with speech,
+music, TV and other ordinary negative sounds before release.
 Capture gaps over three seconds and invalid inputs clear evidence.
 Evidence collected during the 90-second cooldown cannot trigger a later event.
 QA UI shows recent evidence or cooldown seconds; logs show both.
@@ -64,3 +70,11 @@ reason for rejection without per-frame logs. Retest three different cry clips
 at 1m with 90-second cooldown expired. Retest ordinary negative sounds after
 the policy change. If a clip fails, capture score/time sequence from
 KyeobomCryQA logs. Do not interpret 0.8906 as measured accuracy.
+
+## Score fusion follow-up
+The supplied Android trace had three direct hits, all with class 19 ranked first.
+Preserve direct evidence while recognizing the overlapping classes, require at
+least one strong hit, and log elapsed milliseconds and evidence type. The
+policy-only replay assumes sampling cadence because older logs lack timestamps;
+retest separate, previously unused clips outside cooldown and compare adult
+crying and normal speech before release.

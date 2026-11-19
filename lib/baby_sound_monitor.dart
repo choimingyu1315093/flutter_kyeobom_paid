@@ -36,6 +36,8 @@ class BabySoundMonitor {
   int _cryEvents = 0;
   int _cryFrames = 0;
   int _cryAbove = 0;
+  int _cryCorroborated = 0;
+  final Stopwatch _cryClock = Stopwatch();
   double _cryPeak = 0;
   int _cryEmptyPolls = 0;
 
@@ -62,6 +64,8 @@ class BabySoundMonitor {
     _cryPolicy.resetWindow();
     _cryFrames = 0;
     _cryAbove = 0;
+    _cryCorroborated = 0;
+    _cryClock..reset()..start();
     _cryPeak = 0;
     _cryEmptyPolls = 0;
     if (enableCryQa) {
@@ -100,6 +104,7 @@ class BabySoundMonitor {
   Future<void> stop() {
     ++_revision;
     _cryActive = false;
+    _cryClock.stop();
     _cryPolicy.resetWindow();
     if (enableCryQa && !_disposed) {
       onCryStatus?.call('울음 판별 QA 일시정지 · $_cryEvents회');
@@ -191,18 +196,23 @@ class BabySoundMonitor {
       if (score >= _cryPolicy.threshold) _cryAbove++;
       final now = DateTime.now();
       final cooldownBefore = _cryPolicy.inCooldown(now);
-      final detected = _cryPolicy.observe(score, now);
+      final evidence = _cryPolicy.evidenceFor(inference);
+      if (score < _cryPolicy.threshold &&
+          evidence != BabyCryEvidence.none) _cryCorroborated++;
+      final detected = _cryPolicy.observeInference(inference, now);
       if (detected) _cryEvents++;
       final db = babyCryInputDbfs(frame);
       debugPrint('[KyeobomCryQA] frame=$_cryFrames cry=${score.toStringAsFixed(4)} '
           'peak=${_cryPeak.toStringAsFixed(4)} rank=${inference.cryRank} '
           'top=${inference.topIndex}:${inference.topLabel}:${inference.topScore.toStringAsFixed(4)} '
           'inputDbFS=${db.toStringAsFixed(1)} rate=$rate inferenceMs=${timer.elapsedMilliseconds} '
-          'above=$_cryAbove recentHits=${_cryPolicy.recentHits} cooldown=$cooldownBefore '
+          'above=$_cryAbove corroborated=$_cryCorroborated evidence=${evidence.name} '
+          'elapsedMs=${_cryClock.elapsedMilliseconds} recentHits=${_cryPolicy.recentHits} '
+          'strongHits=${_cryPolicy.recentStrongHits} cooldown=$cooldownBefore '
           'remainingSec=${_cryPolicy.cooldownSecondsRemaining(now)} event=$detected');
       onCryStatus?.call(
           '울음 후보 $_cryEvents회 · 현재 ${score.toStringAsFixed(4)} · 최고 ${_cryPeak.toStringAsFixed(4)}\n'
-          '추론 $_cryFrames회 · 기준충족 $_cryAbove회 · '
+          '추론 $_cryFrames회 · 직접 $_cryAbove회 · 보조 $_cryCorroborated회 · '
           '${_cryPolicy.inCooldown(now) ? "재감지 ${_cryPolicy.cooldownSecondsRemaining(now)}초" : "최근 ${_cryPolicy.recentHits}/2"}\n'
           '입력 ${db.toStringAsFixed(0)} dBFS · TOP ${inference.topIndex} (${inference.topScore.toStringAsFixed(3)})');
     } catch (error) {

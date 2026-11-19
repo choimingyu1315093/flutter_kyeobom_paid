@@ -1,30 +1,36 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 
-/// QA starting threshold, NOT a validated probability of crying.
+enum BabyCryEvidence { none, supporting, strong }
+
+/// QA starting thresholds, NOT validated probabilities of crying.
 class BabyCryPolicy {
   static const inputSamples = 15600;
   static const sampleRate = 16000;
   static const cryClassIndex = 20;
+  static const sobbingClassIndex = 19;
   static const classCount = 521;
 
   BabyCryPolicy({
     this.threshold = 0.45,
     this.requiredWindows = 2,
     this.cooldown = const Duration(seconds: 90),
-    this.evidenceWindow = const Duration(seconds: 6),
-    this.maxRecentWindows = 5,
+    this.evidenceWindow = const Duration(seconds: 8),
+    this.maxRecentWindows = 7,
   }) : assert(requiredWindows > 0 && requiredWindows <= maxRecentWindows);
   final double threshold;
   final int requiredWindows;
   final Duration cooldown;
   final Duration evidenceWindow;
   final int maxRecentWindows;
-  final List<({DateTime at, bool hit})> _recent = [];
+  final List<({DateTime at, BabyCryEvidence evidence})> _recent = [];
   DateTime? _lastEvent;
   DateTime? _lastWindow;
 
-  int get recentHits => _recent.where((entry) => entry.hit).length;
+  int get recentHits => _recent
+      .where((entry) => entry.evidence != BabyCryEvidence.none).length;
+  int get recentStrongHits => _recent
+      .where((entry) => entry.evidence == BabyCryEvidence.strong).length;
 
   int cooldownSecondsRemaining(DateTime now) {
     final last = _lastEvent;
@@ -37,10 +43,42 @@ class BabyCryPolicy {
 
   bool inCooldown(DateTime now) => cooldownSecondsRemaining(now) > 0;
 
-  /// Two positive windows in the most recent five valid windows, within
-  /// six seconds. A short quiet breath between cries does not erase a hit.
+  /// Keep the direct baby-class threshold. Class 19 alone must never
+  /// trigger an event: require class 20 to be among the top three, plus
+  /// substantial class-19 and class-20 scores in the SAME prediction.
+  /// A weaker pair can corroborate, but at least one strong hit is required.
+  BabyCryEvidence evidenceFor(BabyCryInference inference) {
+    final score = inference.cryScore;
+    if (!score.isFinite || score < 0 || score > 1) {
+      return BabyCryEvidence.none;
+    }
+    if (score >= threshold) return BabyCryEvidence.strong;
+    if (inference.topIndex != sobbingClassIndex ||
+        inference.cryRank < 1 || inference.cryRank > 3 ||
+        !inference.topScore.isFinite || inference.topScore > 1 ||
+        inference.topScore < 0.25 || score < 0.18) {
+      return BabyCryEvidence.none;
+    }
+    return score >= 0.30
+        ? BabyCryEvidence.strong
+        : BabyCryEvidence.supporting;
+  }
+
+  bool observeInference(BabyCryInference inference, DateTime now) =>
+      _observe(inference.cryScore, evidenceFor(inference), now);
+
+  /// Direct-score-only callers keep the same single-window threshold.
+  bool observe(double score, DateTime now) => _observe(
+      score,
+      score.isFinite && score >= threshold && score <= 1
+          ? BabyCryEvidence.strong
+          : BabyCryEvidence.none,
+      now);
+
+  /// Two distinct positive windows (at least one strong) within the
+  /// most recent seven predictions and eight seconds.
   /// Invalid input, a capture gap or pause must not bridge evidence.
-  bool observe(double score, DateTime now) {
+  bool _observe(double score, BabyCryEvidence evidence, DateTime now) {
     final previousWindow = _lastWindow;
     if (previousWindow != null &&
         (now.isBefore(previousWindow) ||
@@ -59,12 +97,12 @@ class BabyCryPolicy {
     }
 
     _recent.removeWhere((entry) => now.difference(entry.at) > evidenceWindow);
-    final hit = score >= threshold;
-    _recent.add((at: now, hit: hit));
+    _recent.add((at: now, evidence: evidence));
     while (_recent.length > maxRecentWindows) {
       _recent.removeAt(0);
     }
-    if (!hit || recentHits < requiredWindows) return false;
+    if (evidence == BabyCryEvidence.none ||
+        recentHits < requiredWindows || recentStrongHits == 0) return false;
 
     _recent.clear();
     _lastEvent = now;
