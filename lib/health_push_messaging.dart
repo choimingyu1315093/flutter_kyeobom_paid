@@ -7,6 +7,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'remote_control.dart';
@@ -111,6 +112,16 @@ class HealthPushMessaging {
     _messages ??= FirebaseMessaging.onMessage.listen((message) {
       if (_role != 'viewer') return;
       if (message.messageId != null && message.messageId == _lastMessageId) {
+        return;
+      }
+      if (message.data['kind'] == 'baby_cry') {
+        final user = FirebaseAuth.instance.currentUser;
+        if (user?.isAnonymous != false || user?.uid != message.data['viewerUid'] ||
+            _currentStationUid() != message.data['uid']) return;
+        _lastMessageId = message.messageId;
+        // Real FCM in foreground -> OS notification; no in-app banner.
+        unawaited(const MethodChannel('home_camera/screen')
+          .invokeMethod<void>('showBabyCryNotification').catchError((Object _) {}));
         return;
       }
       final alert = HealthPushAlert.fromData(message.data);

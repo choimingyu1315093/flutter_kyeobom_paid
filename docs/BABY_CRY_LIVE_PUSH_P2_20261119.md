@@ -1,0 +1,6 @@
+# P2 baby cry live notification candidate
+Branch isolated from P1. Video-only retains native monitor; audio transmission hands off to the existing WebRTC local audio track (flutter_webrtc pinned to 1.6.3). No automatic audio transmission is enabled by baby mode. Stop/detach before switching audio sources. Short transition gaps, OS background/termination and critical device protection remain limitations. The P1 threshold, gain and cooldown are retained. UI and per-frame numeric logs removed. Only event metadata is written. FCM notification is shown by OS in background; foreground FCM triggers a native OS notification, not an in-app banner.
+
+Deploy ONLY notifyOnBabyCry after adding telemetry/babyCry rule to current production rules (do not replace complete production rules). Existing health registration and server-only alertState permission are prerequisites. No function deploy by this commit. Notification tap opens app, does not automatically start video.
+
+Both platforms require actual native compilation and physical device QA, including mic handoff and real foreground/background delivery. Native WebRTC callback agreement is based on version 1.6.3 source, not a tested binary. Model asset remains locally prepared and unpinned binary. No raw audio upload or storage.

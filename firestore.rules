@@ -53,6 +53,22 @@ service cloud.firestore {
         allow delete: if stationIdentity(stationUid);
       }
 
+      // Baby cry metadata only; station may write, viewers cannot.
+      match /telemetry/babyCry {
+        allow create, update: if stationIdentity(stationUid) &&
+          request.resource.data.keys().hasOnly(['viewerUid', 'detectedAt', 'receivedAt']) &&
+          request.resource.data.keys().hasAll(['viewerUid', 'detectedAt', 'receivedAt']) &&
+          request.resource.data.viewerUid is string &&
+          request.resource.data.viewerUid.size() > 0 &&
+          request.resource.data.viewerUid ==
+            get(/databases/$(database)/documents/homecamStations/$(stationUid)).data.viewerUid &&
+          request.resource.data.receivedAt == request.time &&
+          request.resource.data.detectedAt is timestamp &&
+          request.resource.data.detectedAt >= request.time - duration.value(60, 's') &&
+          request.resource.data.detectedAt <= request.time + duration.value(15, 's');
+        allow read, delete: if false;
+      }
+
       // FCM registrations are bound to the Auth principal that created them.
       // A revoked or different viewer cannot alter another viewer's registration.
       match /devices/{deviceId} {

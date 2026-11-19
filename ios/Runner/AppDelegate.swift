@@ -2,6 +2,15 @@ import Flutter
 import UIKit
 import Network
 import AVFoundation
+import UserNotifications
+import flutter_webrtc
+import WebRTC
+
+private final class BabyCryRtcRenderer: NSObject, RTCAudioRenderer {
+  let receive: (AVAudioPCMBuffer) -> Void
+  init(receive: @escaping (AVAudioPCMBuffer) -> Void) { self.receive = receive }
+  func renderPCMBuffer(_ pcmBuffer: AVAudioPCMBuffer) { receive(pcmBuffer) }
+}
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
@@ -18,6 +27,8 @@ import AVFoundation
   private var cryRate = 0
   private var cryCount = 0
   private var cryWindow: [Float] = []
+  private var babyRtcTrack: LocalAudioTrack?
+  private var babyRtcRenderer: BabyCryRtcRenderer?
 
   private func disableBabyCryCapture() {
     babySoundLock.lock()
@@ -41,6 +52,50 @@ import AVFoundation
     babySoundLock.lock()
     defer { babySoundLock.unlock() }
     return babySoundDb
+  }
+
+  private func startBabyRtcMonitoring(trackId: String) throws {
+    guard babyAudioEngine == nil, babyRtcTrack == nil,
+          let track = FlutterWebRTCPlugin.sharedSingleton()?.localTracks?[trackId] as? LocalAudioTrack else {
+      throw NSError(domain: "KyeobomBaby", code: 2,
+        userInfo: [NSLocalizedDescriptionKey: "WebRTC 마이크를 사용할 수 없습니다"])
+    }
+    let renderer = BabyCryRtcRenderer { [weak self] buffer in
+      guard let self = self, let samples = buffer.int16ChannelData,
+            buffer.frameLength > 0 else { return }
+      let rate = Int(buffer.format.sampleRate.rounded())
+      let channels = Int(buffer.format.channelCount)
+      guard rate >= 16000, rate <= 192000, channels > 0 else { return }
+      self.babySoundLock.lock()
+      defer { self.babySoundLock.unlock() }
+      guard self.cryCapture else { return }
+      if self.cryRate != rate {
+        self.cryRate = rate
+        self.cryCount = 0
+        self.cryWindow = [Float](repeating: 0, count: Int((Double(rate) * 0.975).rounded()))
+      }
+      var power = 0.0
+      for j in 0..<Int(buffer.frameLength) {
+        var value: Float = 0
+        for c in 0..<channels { value += Float(samples[c][j]) / 32768.0 }
+        value /= Float(channels)
+        power += Double(value) * Double(value)
+        if self.cryCount < self.cryWindow.count {
+          self.cryWindow[self.cryCount] = value
+          self.cryCount += 1
+        }
+      }
+      self.babySoundDb = min(0, max(-100, 20 * log10(max(sqrt(power / Double(buffer.frameLength)), 0.00001))))
+    }
+    babySoundLock.lock()
+    cryCapture = true
+    cryRate = 0
+    cryCount = 0
+    cryWindow.removeAll()
+    babySoundLock.unlock()
+    babyRtcTrack = track
+    babyRtcRenderer = renderer
+    track.addRenderer(renderer)
   }
 
   private func startBabySoundMonitoring(enableCryQa: Bool) throws {
@@ -106,6 +161,11 @@ import AVFoundation
 
   private func stopBabySoundMonitoring() {
     disableBabyCryCapture()
+    if let track = babyRtcTrack, let renderer = babyRtcRenderer {
+      track.removeRenderer(renderer)
+    }
+    babyRtcRenderer = nil
+    babyRtcTrack = nil
     guard let engine = babyAudioEngine else { return }
     babyAudioEngine = nil
     engine.inputNode.removeTap(onBus: 0)
@@ -121,12 +181,24 @@ import AVFoundation
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
+    UNUserNotificationCenter.current().delegate = self
     pathMonitor.pathUpdateHandler = { [weak self] path in
       let value = path.status != .satisfied ? "offline" : path.usesInterfaceType(.wifi) ? "wifi" : path.usesInterfaceType(.cellular) ? "cellular" : "other"
       DispatchQueue.main.async { self?.networkType = value }
     }
     pathMonitor.start(queue: pathQueue)
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+  }
+
+  override func userNotificationCenter(_ center: UNUserNotificationCenter,
+    willPresent notification: UNNotification,
+    withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+    if notification.request.identifier.hasPrefix("kyeobom-baby-cry-") {
+      if #available(iOS 14.0, *) { completionHandler([.banner, .list, .sound]) }
+      else { completionHandler([.alert, .sound]) }
+      return
+    }
+    super.userNotificationCenter(center, willPresent: notification, withCompletionHandler: completionHandler)
   }
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
@@ -140,6 +212,27 @@ import AVFoundation
     )
     channel.setMethodCallHandler { call, result in
       switch call.method {
+      case "startBabyRtcMonitoring":
+        do {
+          let args = call.arguments as? [String: Any]
+          try self.startBabyRtcMonitoring(trackId: args?["trackId"] as? String ?? "")
+          result(nil)
+        } catch {
+          result(FlutterError(code: "BABY_RTC_UNAVAILABLE", message: error.localizedDescription, details: nil))
+        }
+      case "showBabyCryNotification":
+        let content = UNMutableNotificationContent()
+        content.title = "아기 울음소리가 감지됐어요"
+        content.body = "아기의 상태를 확인해 주세요."
+        content.sound = .default
+        UNUserNotificationCenter.current().add(UNNotificationRequest(
+          identifier: "kyeobom-baby-cry-" + UUID().uuidString, content: content, trigger: nil)) { error in
+          DispatchQueue.main.async {
+            if let error = error {
+              result(FlutterError(code: "BABY_NOTIFICATION_FAILED", message: error.localizedDescription, details: nil))
+            } else { result(nil) }
+          }
+        }
       case "startBabySoundMonitoring":
         do {
           let args = call.arguments as? [String: Any]

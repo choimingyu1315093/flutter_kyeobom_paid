@@ -13,6 +13,12 @@ import android.os.PowerManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Build
+import android.app.Notification
+import android.app.PendingIntent
+import java.nio.ByteOrder
+import com.cloudwebrtc.webrtc.FlutterWebRTCPlugin
+import com.cloudwebrtc.webrtc.audio.LocalAudioTrack
+import org.webrtc.AudioTrackSink
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.view.Surface
@@ -30,20 +36,64 @@ class MainActivity : FlutterActivity() {
     private val cryLock = Any()
     private var cryCapture = false
     private var cryCount = 0
-    private val cryWindow = FloatArray(15600)
+    private var cryWindow = FloatArray(15600)
+    private var cryRate = 16000
+    private var rtcTrack: LocalAudioTrack? = null
+    private var rtcSink: AudioTrackSink? = null
 
     private fun readBabyCryWindow(): Map<String, Any>? = synchronized(cryLock) {
         if (!cryCapture || cryCount != cryWindow.size) return@synchronized null
         val pcm = cryWindow.copyOf()
         cryWindow.fill(0f)
         cryCount = 0
-        mapOf("pcm" to pcm, "rate" to 16000)
+        mapOf("pcm" to pcm, "rate" to cryRate)
     }
 
     private fun disableBabyCryCapture() = synchronized(cryLock) {
         cryCapture = false
         cryCount = 0
         cryWindow.fill(0f)
+    }
+
+    private fun startBabyRtcMonitoring(trackId: String): String? {
+        if (babyMonitoring || rtcTrack != null) return "기존 마이크 감지를 먼저 중지해야 합니다"
+        val track = FlutterWebRTCPlugin.sharedSingleton?.getLocalTrack(trackId) as? LocalAudioTrack
+            ?: return "WebRTC 마이크를 찾을 수 없습니다"
+        val sink = AudioTrackSink { buffer, bits, rate, channels, frames, _ ->
+            if (bits == 16 && rate in 16000..192000 && channels > 0 && frames > 0) {
+                val samples = buffer.duplicate().order(ByteOrder.nativeOrder()).asShortBuffer()
+                synchronized(cryLock) {
+                    if (cryCapture && rtcTrack === track) {
+                        if (rate != cryRate) {
+                            cryRate = rate
+                            cryWindow = FloatArray(kotlin.math.round(rate * 0.975).toInt())
+                            cryCount = 0
+                        }
+                        val count = minOf(frames, samples.remaining() / channels)
+                        var power = 0.0
+                        for (j in 0 until count) {
+                            var value = 0.0
+                            for (c in 0 until channels) value += samples.get().toDouble() / 32768.0
+                            value /= channels
+                            power += value * value
+                            if (cryCount < cryWindow.size) cryWindow[cryCount++] = value.toFloat()
+                        }
+                        if (count > 0) babySoundDb = (20.0 * log10(maxOf(sqrt(power / count), 0.00001))).coerceIn(-100.0, 0.0)
+                    }
+                }
+            }
+        }
+        synchronized(cryLock) {
+            cryRate = 16000
+            cryWindow = FloatArray(15600)
+            cryCount = 0
+            cryCapture = true
+            rtcTrack = track
+            rtcSink = sink
+            babySoundDb = -100.0
+        }
+        track.addSink(sink)
+        return null
     }
 
     private fun startBabyMonitoring(enableCryQa: Boolean): String? {
@@ -77,6 +127,8 @@ class MainActivity : FlutterActivity() {
         babySoundDb = -100.0
         synchronized(cryLock) {
             cryCapture = enableCryQa
+            cryRate = 16000
+            cryWindow = FloatArray(15600)
             cryCount = 0
             cryWindow.fill(0f)
         }
@@ -113,6 +165,11 @@ class MainActivity : FlutterActivity() {
     private fun stopBabyMonitoring() {
         babyMonitoring = false
         disableBabyCryCapture()
+        val track = rtcTrack
+        val sink = rtcSink
+        rtcTrack = null
+        rtcSink = null
+        if (track != null && sink != null) track.removeSink(sink)
         val recorder = babyRecorder
         babyRecorder = null
         babySoundDb = -100.0
@@ -144,6 +201,8 @@ class MainActivity : FlutterActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val notifications = getSystemService(Context.NOTIFICATION_SERVICE)
                 as? NotificationManager
+            notifications?.createNotificationChannel(NotificationChannel(
+                "kyeobom_baby_cry", "아기 울음 알림", NotificationManager.IMPORTANCE_HIGH))
             notifications?.createNotificationChannel(
                 NotificationChannel(
                     "kyeobom_health_alerts",
@@ -155,6 +214,32 @@ class MainActivity : FlutterActivity() {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "home_camera/screen")
             .setMethodCallHandler { call, result ->
                 when (call.method) {
+                    "startBabyRtcMonitoring" -> {
+                        val id = call.argument<String>("trackId")
+                        val failure = if (id == null) "마이크 트랙 없음" else startBabyRtcMonitoring(id)
+                        if (failure == null) result.success(null)
+                        else result.error("BABY_RTC_UNAVAILABLE", failure, null)
+                    }
+                    "showBabyCryNotification" -> {
+                        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                        if (Build.VERSION.SDK_INT >= 33 &&
+                            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                            result.success(null)
+                        } else {
+                            val launch = packageManager.getLaunchIntentForPackage(packageName)
+                            val pending = launch?.let { PendingIntent.getActivity(this, 0, it,
+                                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE) }
+                            val builder = if (Build.VERSION.SDK_INT >= 26)
+                                Notification.Builder(this, "kyeobom_baby_cry")
+                            else Notification.Builder(this).setPriority(Notification.PRIORITY_HIGH).setDefaults(Notification.DEFAULT_ALL)
+                            if (pending != null) builder.setContentIntent(pending)
+                            manager.notify(7301, builder.setSmallIcon(android.R.drawable.ic_dialog_info)
+                                .setContentTitle("아기 울음소리가 감지됐어요")
+                                .setContentText("아기의 상태를 확인해 주세요.")
+                                .setAutoCancel(true).build())
+                            result.success(null)
+                        }
+                    }
                     "startBabySoundMonitoring" -> {
                         val failure = startBabyMonitoring(call.argument<Boolean>("cryQa") == true)
                         if (failure == null) result.success(null)

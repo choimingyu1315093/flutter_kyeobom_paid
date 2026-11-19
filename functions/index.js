@@ -6,6 +6,7 @@ const {getFirestore} = require('firebase-admin/firestore');
 const {getMessaging} = require('firebase-admin/messaging');
 const {ALERTS, planHealthAlerts} = require('./health_alert_policy');
 const {approvedRecipients} = require('./health_recipient_policy');
+const {isFreshEvent, canClaimCry} = require('./baby_cry_push_policy');
 
 initializeApp();
 
@@ -131,3 +132,51 @@ exports.notifyOnHealthChange = onDocumentWritten(
     }
   },
 );
+
+
+// Separate trigger; never change or redeploy the existing health function.
+exports.notifyOnBabyCry = onDocumentWritten({
+  document: 'homecamStations/{uid}/telemetry/babyCry',
+  region: 'asia-northeast3', memory: '256MiB', maxInstances: 3, retry: false,
+}, async (event) => {
+  const data = event.data?.after?.data();
+  if (!data) return;
+  const uid = event.params.uid;
+  const approvedUid = data.viewerUid;
+  const detected = data.detectedAt?.toMillis?.();
+  const received = data.receivedAt?.toMillis?.();
+  const now = Date.now();
+  if (typeof approvedUid !== 'string' || !approvedUid ||
+      !isFreshEvent(detected, received, now)) return;
+  const db = getFirestore();
+  const station = db.collection('homecamStations').doc(uid);
+  const registrations = await station.collection('devices')
+    .where('authUid', '==', approvedUid).limit(MAX_VIEWERS).get();
+  const tokens = [...new Set(approvedRecipients(registrations.docs.map(doc => doc.data()),
+    approvedUid).map(device => device.fcmToken))];
+  if (!tokens.length) return;
+  const claimed = await db.runTransaction(async tx => {
+    const current = await tx.get(station);
+    if (current.get('viewerUid') !== approvedUid ||
+        current.get('onlineHint') !== true) return false;
+    const state = station.collection('alertState').doc('babyCry');
+    const previous = await tx.get(state);
+    const last = previous.get('detectedAt')?.toMillis?.() || 0;
+    if (!canClaimCry(detected, last)) return false;
+    tx.set(state, {detectedAt: data.detectedAt, receivedAt: data.receivedAt});
+    return true;
+  });
+  if (!claimed) return;
+  const current = await station.get();
+  if (current.get('viewerUid') !== approvedUid || current.get('onlineHint') !== true) return;
+  const response = await getMessaging().sendEachForMulticast({
+    tokens,
+    notification: {title: '아기 울음소리가 감지됐어요', body: '아기의 상태를 확인해 주세요.'},
+    data: {kind: 'baby_cry', uid, viewerUid: approvedUid},
+    android: {priority: 'high', ttl: 60000,
+      notification: {channelId: 'kyeobom_baby_cry', priority: 'high'}},
+    apns: {headers: {'apns-priority': '10', 'apns-expiration': String(Math.floor((now + 60000) / 1000))},
+      payload: {aps: {sound: 'default'}}},
+  });
+  console.info('Kyeobom baby cry push result', {delivered: response.successCount, failed: response.failureCount});
+});
