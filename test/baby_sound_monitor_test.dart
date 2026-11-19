@@ -71,4 +71,25 @@ void main() {
     await tester.pump(const Duration(seconds: 2));
     expect(events, [1]);
   });
+
+  testWidgets('handoff uses existing RTC track instead of opening a second mic', (tester) async {
+    final calls = <String>[];
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      calls.add(call.method);
+      if (call.method == 'startBabyRtcMonitoring') {
+        expect(call.arguments, {'trackId': 'station-audio'});
+      }
+      return call.method == 'readBabySoundLevel' ? -70.0 : null;
+    });
+    final monitor = BabySoundMonitor(onStatus: (_) {}, onDetection: (_) {});
+    monitor.setEnabled(true);
+    await monitor.start();
+    await monitor.stop();
+    await monitor.start(webRtcTrackId: 'station-audio');
+    await monitor.stop();
+    expect(calls, ['startBabySoundMonitoring', 'stopBabySoundMonitoring',
+      'startBabyRtcMonitoring', 'stopBabySoundMonitoring']);
+    expect(monitor.running, false);
+  });
+
 }

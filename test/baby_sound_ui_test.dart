@@ -53,7 +53,7 @@ void main() {
       onLeave: () {},
       onToggleMicrophone: () {},
       babyEnabled: true,
-      babyRunning: false,
+      babyRunning: true,
       onBabyChanged: (enabled) => revokedConsent = enabled,
     )));
     final babySwitch = tester.widgetList<SwitchListTile>(
@@ -61,7 +61,9 @@ void main() {
     expect(babySwitch.onChanged, isNotNull);
     babySwitch.onChanged?.call(false);
     expect(revokedConsent, false);
+    expect(find.text('아기 울음 감지 중'), findsOneWidget);
     expect(find.textContaining('소리 변화 감지 2회'), findsNothing);
+    expect(find.textContaining('울음 후보'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 }

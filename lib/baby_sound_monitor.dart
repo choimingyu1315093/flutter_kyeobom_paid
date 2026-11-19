@@ -34,6 +34,7 @@ class BabySoundMonitor {
   bool _disposed = false;
   int _revision = 0;
   int _cryEmptyPolls = 0;
+  bool _inputWarning = false;
 
   Future<void> _operations = Future<void>.value();
   Timer? _poll;
@@ -57,6 +58,7 @@ class BabySoundMonitor {
     _cryActive = false;
     _cryPolicy.resetWindow();
     _cryEmptyPolls = 0;
+    _inputWarning = false;
     if (enableCryQa) {
       try {
         final classifier = _cryClassifier ??= BabyCryClassifier();
@@ -155,6 +157,7 @@ class BabySoundMonitor {
       if (window == null) {
         if (++_cryEmptyPolls >= 10) {
           _cryEmptyPolls = 0;
+          _inputWarning = true;
           onStatus('마이크 입력을 확인하고 있어요.');
         }
         return;
@@ -164,14 +167,20 @@ class BabySoundMonitor {
       final rate = window['rate'];
       if (pcm is! Float32List || rate is! int) {
         _cryPolicy.resetWindow();
+        _inputWarning = true;
         onStatus('마이크 입력을 확인해 주세요.');
         return;
       }
       final frame = babyCryResample(pcm, rate);
       if (frame == null) {
         _cryPolicy.resetWindow();
+        _inputWarning = true;
         onStatus('마이크 입력을 확인해 주세요.');
         return;
+      }
+      if (_inputWarning) {
+        _inputWarning = false;
+        onStatus('아기 울음 감지 중');
       }
       final raw = await _cryClassifier!.classify(frame);
       if (!_running || !_cryActive || !_enabled || revision != _revision) return;
@@ -185,7 +194,7 @@ class BabySoundMonitor {
         if (gainFrame != null) {
           try {
             boosted = await _cryClassifier!.classify(gainFrame.samples);
-          } catch (error) {
+          } catch (_) {
             // A fallback failure must not discard the original prediction.
             // Use the original inference for this window.
           }
@@ -197,8 +206,7 @@ class BabySoundMonitor {
       if (_cryPolicy.observeInference(inference, DateTime.now())) {
         onCryDetected?.call();
       }
-    } catch (error) {
-
+    } catch (_) {
       if (revision == _revision && _cryActive) {
         _cryActive = false;
         _cryPolicy.resetWindow();

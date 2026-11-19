@@ -313,6 +313,8 @@ class _StationScreenState extends State<StationScreen>
   bool _babyBusy = false;
   String? _babyStatus;
   bool _babySourceChanging = false;
+  bool _finishingStream = false;
+  Future<void>? _micTransition;
   int _babyConsentRevision = 0;
   Future<void> _commandQueue = Future<void>.value();
 
@@ -399,7 +401,7 @@ class _StationScreenState extends State<StationScreen>
   }
 
   Future<void> _resumeBabyMonitoring() async {
-    if (!mounted || _leaving || !_foreground || _babySourceChanging ||
+    if (!mounted || _leaving || !_foreground || _babySourceChanging || _finishingStream || _micSettingsBusy ||
         !_babyEnabled || !_babySound.enabled ||
         _latestHealth?.shouldStopVideo == true) return;
     try {
@@ -435,14 +437,15 @@ class _StationScreenState extends State<StationScreen>
         'receivedAt': FieldValue.serverTimestamp(),
       }).timeout(const Duration(seconds: 8));
     } catch (_) {
-      if (mounted && !_leaving && _babyEnabled) {
+      if (mounted && !_leaving && _babyEnabled && revision == _babyConsentRevision) {
         setState(() => _babyStatus = '알림 전송 실패 · 인터넷 연결을 확인해 주세요.');
       }
     }
   }
 
   Future<void> _setBabyEnabled(bool enabled) async {
-    if (_babyBusy || _leaving || (enabled && _babySourceChanging)) return;
+    if (_babyBusy || _leaving || _micSettingsBusy ||
+        (enabled && (_babySourceChanging || _finishingStream || _microphoneBusy))) return;
     ++_babyConsentRevision;
     setState(() => _babyBusy = true);
     try {
@@ -522,7 +525,9 @@ class _StationScreenState extends State<StationScreen>
     if (!mounted || _leaving) return;
     setState(() => _latestHealth = snapshot);
     if (snapshot.shouldStopVideo) {
-      unawaited(_babySound.stop().catchError((Object _) {}));
+      unawaited(_babySound.stop().then((_) {
+        if (mounted && !_leaving) setState(() => _babyStatus = '기기 보호를 위해 울음 감지가 중단됐어요.');
+      }).catchError((Object _) {}));
     } else if (_babyEnabled) {
       unawaited(_resumeBabyMonitoring());
     }
@@ -590,10 +595,10 @@ class _StationScreenState extends State<StationScreen>
   /// This consent is configured on the station device while a person is there.
   /// Permission capture is stopped immediately; no idle microphone remains on.
   Future<void> _setMicAutoEnabled(bool enabled) async {
-    if (_micSettingsBusy || _streaming || _leaving) return;
+    if (_micSettingsBusy || _babyBusy || _streaming || _leaving) return;
     setState(() => _micSettingsBusy = true);
     try {
-      if (enabled) {
+      if (enabled && !_babySound.running) {
         await StationMicrophone.preparePermission();
       }
       await _micPreferences.setBool(_micAutoKey, enabled);
@@ -611,6 +616,7 @@ class _StationScreenState extends State<StationScreen>
       }
     } finally {
       if (mounted) setState(() => _micSettingsBusy = false);
+      unawaited(_resumeBabyMonitoring());
     }
   }
 
@@ -687,6 +693,7 @@ class _StationScreenState extends State<StationScreen>
       if (mounted) setState(() => _status = '원격 연결 준비 중');
       // Video-only WebRTC never opens an audio track. Keep baby capture on.
       if (_rtc.isRunning && _rtc.sessionId != sessionId) {
+        await _micTransition;
         _babySourceChanging = true;
         await _babySound.stop();
         // Finalize any clip BEFORE the previous camera track is released.
@@ -722,7 +729,7 @@ class _StationScreenState extends State<StationScreen>
       if (_micAutoEnabled && _streaming && _rtc.sessionId == sessionId) {
         // Station-side opt-in only; viewer has no microphone capture.
         // Audio failure is isolated and cannot tear down the video peer.
-        unawaited(_toggleStationMicrophone());
+        await _toggleStationMicrophone();
       }
     } catch (error) {
       if (mounted) {
@@ -740,7 +747,14 @@ class _StationScreenState extends State<StationScreen>
   }
 
   Future<void> _toggleStationMicrophone() async {
-    if (_microphoneBusy || _leaving || !_streaming) return;
+    if (_microphoneBusy || _babyBusy || _finishingStream ||
+        _leaving || !_streaming || !_foreground || _latestHealth?.shouldStopVideo == true) return;
+    final task = _changeStationMicrophone();
+    _micTransition = task;
+    try { await task; } finally { if (identical(_micTransition, task)) _micTransition = null; }
+  }
+
+  Future<void> _changeStationMicrophone() async {
     final sessionId = _rtc.sessionId;
     if (sessionId == null) return;
     setState(() => _microphoneBusy = true);
@@ -762,14 +776,15 @@ class _StationScreenState extends State<StationScreen>
   }
 
   Future<void> _finishStream() async {
-    _babySourceChanging = true;
+    _finishingStream = true;
     try {
+      await _micTransition;
       await _events.stop();
       if (_microphone.isOn || _microphoneBusy) await _babySound.stop();
       await _microphone.disable();
       if (_rtc.isRunning) await _rtc.end();
     } finally {
-      _babySourceChanging = false;
+      _finishingStream = false;
     }
     if (mounted && !_leaving) {
       setState(() {
@@ -789,6 +804,7 @@ class _StationScreenState extends State<StationScreen>
     await _commands?.cancel();
     _health?.stop();
     try {
+      await _micTransition;
       await _babySound.stop();
       await _events.stop();
       await _microphone.disable();
@@ -860,7 +876,7 @@ class _StationScreenState extends State<StationScreen>
           status: _status,
           streaming: _streaming,
           microphoneOn: _microphoneOn,
-          microphoneBusy: _microphoneBusy,
+          microphoneBusy: _microphoneBusy || _babyBusy || _finishingStream,
           microphoneMessage: _microphoneMessage,
           healthSyncError: _healthSyncError,
           healthSummary: _latestHealth == null
@@ -875,12 +891,12 @@ class _StationScreenState extends State<StationScreen>
               unawaited(_setEventEnabled(enabled)),
           onViewEventClips: () => unawaited(_openEventClips()),
           babyEnabled: _babyEnabled,
-          babyBusy: _babyBusy,
+          babyBusy: _babyBusy || _microphoneBusy || _micSettingsBusy || _finishingStream,
           babyRunning: _babySound.running,
           babyStatus: _babyStatus,
           onBabyChanged: (enabled) => unawaited(_setBabyEnabled(enabled)),
           autoMicrophoneEnabled: _micAutoEnabled,
-          autoMicrophoneBusy: _micSettingsBusy,
+          autoMicrophoneBusy: _micSettingsBusy || _babyBusy,
           onAutoMicrophoneChanged: (enabled) =>
               unawaited(_setMicAutoEnabled(enabled)),
           leaving: _leaving,

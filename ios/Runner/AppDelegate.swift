@@ -3,6 +3,7 @@ import UIKit
 import Network
 import AVFoundation
 import UserNotifications
+import firebase_messaging
 import flutter_webrtc
 import WebRTC
 
@@ -182,6 +183,7 @@ private final class BabyCryRtcRenderer: NSObject, RTCAudioRenderer {
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
     UNUserNotificationCenter.current().delegate = self
+    FLTFirebaseMessagingPlugin.configureNotificationCenterDelegate()
     pathMonitor.pathUpdateHandler = { [weak self] path in
       let value = path.status != .satisfied ? "offline" : path.usesInterfaceType(.wifi) ? "wifi" : path.usesInterfaceType(.cellular) ? "cellular" : "other"
       DispatchQueue.main.async { self?.networkType = value }
@@ -199,6 +201,16 @@ private final class BabyCryRtcRenderer: NSObject, RTCAudioRenderer {
       return
     }
     super.userNotificationCenter(center, willPresent: notification, withCompletionHandler: completionHandler)
+  }
+
+  override func userNotificationCenter(_ center: UNUserNotificationCenter,
+    didReceive response: UNNotificationResponse,
+    withCompletionHandler completionHandler: @escaping () -> Void) {
+    if response.notification.request.identifier.hasPrefix("kyeobom-baby-cry-") {
+      completionHandler()
+      return
+    }
+    super.userNotificationCenter(center, didReceive: response, withCompletionHandler: completionHandler)
   }
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {

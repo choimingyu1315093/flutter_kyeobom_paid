@@ -42,6 +42,10 @@ android {
     }
 }
 
+dependencies {
+    implementation("io.github.webrtc-sdk:android:150.7871.04")
+}
+
 kotlin {
     compilerOptions {
         jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
