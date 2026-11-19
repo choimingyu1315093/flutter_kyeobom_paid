@@ -54,6 +54,30 @@ class HomeCamWebRtcSession {
   bool _closing = false;
   bool _reducedVideo = false;
   final _nightVideo = NightVideoEnhancement();
+  static const nightComparisonQa =
+      bool.fromEnvironment('KYEOBOM_NIGHT_COMPARE_QA');
+  bool _nightRequested = true;
+  bool _nightHealthBlocked = false;
+  bool get nightEnhancementAttached => _nightVideo.attached;
+  bool get isNightHealthBlocked => _nightHealthBlocked;
+
+  /// Called on the station command queue, not a new camera/peer connection.
+  /// ON attaches the automatic processor, not a forced brightening filter.
+  Future<bool> setNightComparisonEnabled(bool enabled) async {
+    final track = stationVideoTrack;
+    if (!nightComparisonQa || track == null || _nightHealthBlocked ||
+        _reducedVideo) return false;
+    final id = _sessionId;
+    final applied = enabled
+        ? await _nightVideo.attach(track.id)
+        : await _nightVideo.detach();
+    if (_closing || _sessionId != id || _nightHealthBlocked) {
+      await _nightVideo.detach();
+      return false;
+    }
+    if (applied) _nightRequested = enabled;
+    return applied;
+  }
   bool _viewerTransportConnected = false;
   Timer? _lostConnectionTimer;
   Timer? _initialConnectionTimer;
@@ -511,6 +535,8 @@ class HomeCamWebRtcSession {
         }
       }
       _reducedVideo = reducedQuality;
+      _nightRequested = true;
+      _nightHealthBlocked = reducedQuality;
       if (!reducedQuality && stationVideoTrack != null) {
         await _nightVideo.attach(stationVideoTrack!.id);
       }
@@ -563,9 +589,10 @@ class HomeCamWebRtcSession {
     if (_viewer || _closing || stream == null) return false;
     // Suspend extra frame work as soon as battery/thermal protection asks,
     // even if the device rejects video resolution adaptation.
+    _nightHealthBlocked = reduced;
     if (reduced) {
       await _nightVideo.detach();
-    } else if (stationVideoTrack != null) {
+    } else if (_nightRequested && stationVideoTrack != null) {
       await _nightVideo.attach(stationVideoTrack!.id);
     }
     if (_closing || _cameraStream != stream) {
@@ -614,6 +641,7 @@ class HomeCamWebRtcSession {
     _closing = true;
     _sessionId = null;
     _reducedVideo = false;
+    _nightHealthBlocked = false;
     _viewerTransportConnected = false;
     _qualityStatsTimer?.cancel();
     _qualityStatsTimer = null;

@@ -34,6 +34,9 @@ class KyeobomStationView extends StatelessWidget {
     this.babyRunning = false,
     this.babyStatus,
     this.onBabyChanged,
+    this.nightCompareEnabled = false,
+    this.nightCompareBusy = false,
+    this.onNightCompare,
   });
 
   final String status;
@@ -52,6 +55,8 @@ class KyeobomStationView extends StatelessWidget {
   final bool babyEnabled, babyBusy, babyRunning;
   final String? babyStatus;
   final ValueChanged<bool>? onBabyChanged;
+  final bool nightCompareEnabled, nightCompareBusy;
+  final VoidCallback? onNightCompare;
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -145,6 +150,23 @@ class KyeobomStationView extends StatelessWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+        if (streaming && onNightCompare != null) ...[
+          OutlinedButton.icon(
+            key: const ValueKey('nightComparisonQa'),
+            onPressed: leaving || nightCompareBusy ? null : onNightCompare,
+            icon: Icon(nightCompareEnabled ? Icons.nights_stay : Icons.wb_sunny_outlined,
+              size: 17),
+            label: Text(nightCompareEnabled
+                ? '비교: 유료 야간 보정 ON'
+                : '비교: 기본 화질 OFF'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Colors.white70,
+              side: const BorderSide(color: Colors.white24),
+              minimumSize: const Size(180, 44),
+            ),
+          ),
+          const SizedBox(height: 8),
+        ],
         if (!streaming)
           Container(
             decoration: BoxDecoration(

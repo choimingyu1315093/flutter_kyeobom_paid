@@ -47,4 +47,30 @@ void main() {
     final n = NightVideoEnhancement(channel: channel, enabled: true);
     expect(await n.attach('a'), false);
   });
+  test('failed detach keeps ON state and blocks replacing processor', () async {
+    final n = NightVideoEnhancement(channel: channel, enabled: true);
+    expect(await n.attach('a'), true);
+    expect(n.attached, true);
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'detachNightVideo') {
+        throw PlatformException(code: 'detach-failed');
+      }
+      return true;
+    });
+    expect(await n.detach(), false);
+    expect(n.attached, true);
+    expect(await n.attach('b'), false);
+  });
+  test('live A/B attaches and detaches the same track without new media', () async {
+    final n = NightVideoEnhancement(channel: channel, enabled: true);
+    expect(await n.attach('a'), true);
+    expect(n.attached, true);
+    expect(await n.detach(), true);
+    expect(n.attached, false);
+    expect(await n.attach('a'), true);
+    expect(calls.map((c) => c.method), [
+      'attachNightVideo', 'detachNightVideo', 'attachNightVideo',
+    ]);
+  });
+
 }

@@ -312,6 +312,7 @@ class _StationScreenState extends State<StationScreen>
   bool _babyEnabled = false;
   bool _babyBusy = false;
   String? _babyStatus;
+  bool _nightCompareBusy = false;
   bool _babySourceChanging = false;
   bool _finishingStream = false;
   Future<void>? _micTransition;
@@ -524,6 +525,40 @@ class _StationScreenState extends State<StationScreen>
     );
   }
 
+  Future<void> _toggleNightComparison() async {
+    if (!HomeCamWebRtcSession.nightComparisonQa || !mounted ||
+        !_foreground || !_streaming || _leaving || _finishingStream ||
+        _nightCompareBusy || _latestHealth?.shouldReduceVideo == true) return;
+    final sessionId = _rtc.sessionId;
+    if (sessionId == null) return;
+    setState(() => _nightCompareBusy = true);
+    final work = _commandQueue.then((_) async {
+      if (!mounted || _leaving || !_foreground || !_streaming ||
+          _rtc.sessionId != sessionId ||
+          _latestHealth?.shouldReduceVideo == true) return;
+      final ok = await _rtc.setNightComparisonEnabled(
+        !_rtc.nightEnhancementAttached,
+      );
+      if (!ok && mounted && !_leaving && _rtc.sessionId == sessionId) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('야간 보정 전환을 적용하지 못했어요.')),
+        );
+      }
+    });
+    _commandQueue = work.catchError((Object _) {});
+    try {
+      await work;
+    } catch (_) {
+      if (mounted && !_leaving) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('야간 보정 전환 오류')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _nightCompareBusy = false);
+    }
+  }
+
   void _onHealthSample(DeviceHealthSnapshot snapshot) {
     if (!mounted || _leaving) return;
     setState(() => _latestHealth = snapshot);
@@ -550,7 +585,8 @@ class _StationScreenState extends State<StationScreen>
         if (mounted) setState(() => _status = '기기 보호 처리 오류: $error');
       });
     } else if (_streaming && _rtc.isRunning &&
-        _rtc.isVideoReduced != snapshot.shouldReduceVideo) {
+        (_rtc.isVideoReduced != snapshot.shouldReduceVideo ||
+         _rtc.isNightHealthBlocked != snapshot.shouldReduceVideo)) {
       // Serialized with start/stop requests: quality adjustment does not
       // create a new peer, restart the camera, or touch the microphone.
       _commandQueue = _commandQueue.then((_) async {
@@ -880,6 +916,11 @@ class _StationScreenState extends State<StationScreen>
         child: KyeobomStationView(
           status: _status,
           streaming: _streaming,
+          nightCompareEnabled: _rtc.nightEnhancementAttached,
+          nightCompareBusy: _nightCompareBusy || _finishingStream ||
+              _rtc.isNightHealthBlocked || _latestHealth?.shouldReduceVideo == true,
+          onNightCompare: HomeCamWebRtcSession.nightComparisonQa
+              ? () => unawaited(_toggleNightComparison()) : null,
           microphoneOn: _microphoneOn,
           microphoneBusy: _microphoneBusy || _babyBusy || _finishingStream,
           microphoneMessage: _microphoneMessage,

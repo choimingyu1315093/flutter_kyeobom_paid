@@ -14,11 +14,12 @@ class NightVideoEnhancement {
   final MethodChannel _channel;
   final bool _enabled;
   String? _trackId;
+  bool get attached => _trackId != null;
 
   Future<bool> attach(String trackId) async {
     if (!_enabled) return false;
     if (_trackId == trackId) return true;
-    await detach();
+    if (!await detach()) return false;
     try {
       final attached = await _channel.invokeMethod<bool>(
           'attachNightVideo', {'trackId': trackId}) == true;
@@ -30,14 +31,17 @@ class NightVideoEnhancement {
     }
   }
 
-  Future<void> detach() async {
+  Future<bool> detach() async {
     final id = _trackId;
-    _trackId = null;
-    if (id == null) return;
+    if (id == null) return true;
     try {
       await _channel.invokeMethod<void>('detachNightVideo', {'trackId': id});
+      if (_trackId == id) _trackId = null;
+      return true;
     } catch (error) {
       if (kDebugMode) debugPrint('[kyeobom/night] detach unavailable: $error');
+      return false;
     }
   }
+
 }

@@ -26,3 +26,5 @@ distance, angle, Wi-Fi, camera and viewer. Compare day and dim (not only
 brightness; face/clothing details, noise, motion, fps and heat), lights on/off,
 audio ON/OFF, baby cry push and event recording, disconnect and re-connect.
 Physical tests and native builds are required; native code not compiled here.
+
+Temporary live A/B button: build with --dart-define=KYEOBOM_NIGHT_COMPARE_QA=true (leave KYEOBOM_NIGHT_ENHANCE at true/default). Only the live station screen shows one button. ON indicates processor attached, not proof current illumination is dark. OFF detaches it; camera, encoder and session remain unchanged. Toggle after stable dark scene, wait 2–3 seconds in each state and compare viewer screenshots. Normal builds hide the button; health protection disables comparison, and recovering health respects an explicit OFF selection. New sessions default ON. No native code or backend changed for this button.
