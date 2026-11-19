@@ -19,6 +19,7 @@ import java.nio.ByteOrder
 import com.cloudwebrtc.webrtc.FlutterWebRTCPlugin
 import com.cloudwebrtc.webrtc.audio.LocalAudioTrack
 import org.webrtc.AudioTrackSink
+import com.cloudwebrtc.webrtc.video.LocalVideoTrack
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.view.Surface
@@ -28,6 +29,33 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
+    private var nightTrack: LocalVideoTrack? = null
+    private var nightProcessor: NightVideoProcessor? = null
+    private var nightTrackId: String? = null
+
+    private fun detachNightVideo(trackId: String? = null) {
+        if (trackId != null && nightTrackId != trackId) return
+        val track = nightTrack
+        val processor = nightProcessor
+        nightTrack = null
+        nightProcessor = null
+        nightTrackId = null
+        if (track != null && processor != null) track.removeProcessor(processor)
+    }
+
+    private fun attachNightVideo(trackId: String): Boolean {
+        if (nightTrackId == trackId && nightProcessor != null) return true
+        detachNightVideo()
+        val track = FlutterWebRTCPlugin.sharedSingleton?.getLocalTrack(trackId) as? LocalVideoTrack
+            ?: return false
+        val processor = NightVideoProcessor()
+        track.addProcessor(processor)
+        nightTrack = track
+        nightProcessor = processor
+        nightTrackId = trackId
+        return true
+    }
+
     // Baby sound mode is explicit opt-in and foreground-only.
     // Collects only decibel readings, never audio buffers on disk/network.
     @Volatile private var babyMonitoring = false
@@ -185,11 +213,13 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onStop() {
+        detachNightVideo()
         stopBabyMonitoring()
         super.onStop()
     }
 
     override fun onDestroy() {
+        detachNightVideo()
         stopBabyMonitoring()
         super.onDestroy()
     }
@@ -214,6 +244,15 @@ class MainActivity : FlutterActivity() {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "home_camera/screen")
             .setMethodCallHandler { call, result ->
                 when (call.method) {
+                    "attachNightVideo" -> {
+                        val id = call.argument<String>("trackId")
+                        try { result.success(id != null && attachNightVideo(id)) }
+                        catch (_: Exception) { result.success(false) }
+                    }
+                    "detachNightVideo" -> {
+                        detachNightVideo(call.argument<String>("trackId"))
+                        result.success(null)
+                    }
                     "startBabyRtcMonitoring" -> {
                         val id = call.argument<String>("trackId")
                         val failure = if (id == null) "마이크 트랙 없음" else startBabyRtcMonitoring(id)

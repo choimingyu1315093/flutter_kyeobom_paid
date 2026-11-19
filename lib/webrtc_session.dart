@@ -8,6 +8,7 @@ import 'remote_control.dart';
 import 'homecam_cost_policy.dart';
 import 'homecam_video_quality.dart';
 import 'homecam_recovery_policy.dart';
+import 'night_video_enhancement.dart';
 
 /// One on-demand, video-only WebRTC session.
 ///
@@ -52,6 +53,7 @@ class HomeCamWebRtcSession {
   bool _answerInProgress = false;
   bool _closing = false;
   bool _reducedVideo = false;
+  final _nightVideo = NightVideoEnhancement();
   bool _viewerTransportConnected = false;
   Timer? _lostConnectionTimer;
   Timer? _initialConnectionTimer;
@@ -509,6 +511,9 @@ class HomeCamWebRtcSession {
         }
       }
       _reducedVideo = reducedQuality;
+      if (!reducedQuality && stationVideoTrack != null) {
+        await _nightVideo.attach(stationVideoTrack!.id);
+      }
       for (final track in _cameraStream!.getVideoTracks()) {
         final sender = await _peer!.addTrack(track, _cameraStream!);
         // Best effort: encoders may reject these parameters on some hardware.
@@ -556,6 +561,17 @@ class HomeCamWebRtcSession {
   Future<bool> setReducedQuality(bool reduced) async {
     final stream = _cameraStream;
     if (_viewer || _closing || stream == null) return false;
+    // Suspend extra frame work as soon as battery/thermal protection asks,
+    // even if the device rejects video resolution adaptation.
+    if (reduced) {
+      await _nightVideo.detach();
+    } else if (stationVideoTrack != null) {
+      await _nightVideo.attach(stationVideoTrack!.id);
+    }
+    if (_closing || _cameraStream != stream) {
+      await _nightVideo.detach();
+      return false;
+    }
     if (_reducedVideo == reduced) return true;
     final tracks = stream.getVideoTracks();
     if (tracks.isEmpty) return false;
@@ -636,6 +652,7 @@ class HomeCamWebRtcSession {
 
     final stream = _cameraStream;
     _cameraStream = null;
+    await _nightVideo.detach();
     if (stream != null) {
       for (final track in stream.getTracks()) {
         await track.stop();
