@@ -159,7 +159,7 @@ class KyeobomStationView extends StatelessWidget {
               child: SwitchListTile.adaptive(
                 title: const Text('실시간 보기 시 거치폰 마이크 자동 켜기',
                 style: TextStyle(color: Colors.white60, fontSize: 12)),
-              subtitle: const Text('주변 소리 전송 · 베이비 모드와 별도 동작',
+              subtitle: const Text('실시간 음성 전송은 대기 중에는 OFF · 베이비 모드 별도',
                 style: TextStyle(color: Colors.white30, fontSize: 10)),
               contentPadding: const EdgeInsets.symmetric(horizontal: 12),
               activeTrackColor: KyeobomPalette.blue,
