@@ -37,9 +37,10 @@ subprojects {
                 .finalizeDsl { android ->
                     android.compileOptions.sourceCompatibility = JavaVersion.VERSION_17
                     android.compileOptions.targetCompatibility = JavaVersion.VERSION_17
+                    // AGP 9 prohibits reading CompileOptions until DSL finalization
+                    // finishes. Log the intended value, not its guarded getter.
                     tfliteProject.logger.lifecycle(
-                        "[Kyeobom] tflite_flutter finalized Java target: " +
-                            android.compileOptions.targetCompatibility
+                        "[Kyeobom] tflite_flutter requested Java target: 17"
                     )
                 }
         }
