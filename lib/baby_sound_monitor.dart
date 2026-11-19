@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'baby_sound_policy.dart';
 import 'baby_cry_classifier.dart';
 import 'baby_cry_policy.dart';
+import 'baby_cry_gain.dart';
 
 /// Local-only sound-change monitoring. P0 receives dBFS only. Optional
 /// P1 QA receives bounded waveform windows into the local interpreter.
@@ -21,6 +22,7 @@ class BabySoundMonitor {
 
   static const MethodChannel _native = MethodChannel('home_camera/screen');
   static const pollInterval = Duration(milliseconds: 500);
+  static const _gainQa = bool.fromEnvironment('KYEOBOM_CRY_GAIN_QA', defaultValue: true);
 
   final void Function(String) onStatus;
   final void Function(int count) onDetection;
@@ -37,6 +39,9 @@ class BabySoundMonitor {
   int _cryFrames = 0;
   int _cryAbove = 0;
   int _cryCorroborated = 0;
+  int _cryGainRuns = 0;
+  int _cryGainHits = 0;
+  double _cryRawPeak = 0;
   final Stopwatch _cryClock = Stopwatch();
   double _cryPeak = 0;
   int _cryEmptyPolls = 0;
@@ -65,6 +70,9 @@ class BabySoundMonitor {
     _cryFrames = 0;
     _cryAbove = 0;
     _cryCorroborated = 0;
+    _cryGainRuns = 0;
+    _cryGainHits = 0;
+    _cryRawPeak = 0;
     _cryClock..reset()..start();
     _cryPeak = 0;
     _cryEmptyPolls = 0;
@@ -187,9 +195,34 @@ class BabySoundMonitor {
         return;
       }
       final timer = Stopwatch()..start();
-      final inference = await _cryClassifier!.classify(frame);
+      final db = babyCryInputDbfs(frame);
+      final raw = await _cryClassifier!.classify(frame);
+      if (!_running || !_cryActive || !_enabled || revision != _revision) return;
+      BabyCryGainFrame? gainFrame;
+      BabyCryInference? boosted;
+      // Original inference always runs first. No new microphone path and no
+      // second policy observation for a transformed copy of the same window.
+      if (_gainQa &&
+          !_cryPolicy.inCooldown(DateTime.now()) &&
+          _cryPolicy.evidenceFor(raw) != BabyCryEvidence.strong) {
+        gainFrame = prepareBabyCryGain(frame);
+        if (gainFrame != null) {
+          try {
+            boosted = await _cryClassifier!.classify(gainFrame.samples);
+          } catch (error) {
+            // A fallback failure must not discard the original prediction.
+            debugPrint('[KyeobomCryQA] gain fallback failed: $error');
+          }
+        }
+      }
       timer.stop();
-      if (!_running || !_cryActive || revision != _revision) return;
+      if (!_running || !_cryActive || !_enabled || revision != _revision) return;
+      if (gainFrame != null) _cryGainRuns++;
+      final inference = selectBabyCryInference(
+          policy: _cryPolicy, raw: raw, boosted: boosted);
+      final gainUsed = boosted != null && identical(inference, boosted);
+      if (gainUsed) _cryGainHits++;
+      if (raw.cryScore > _cryRawPeak) _cryRawPeak = raw.cryScore;
       final score = inference.cryScore;
       _cryFrames++;
       if (score > _cryPeak) _cryPeak = score;
@@ -201,11 +234,17 @@ class BabySoundMonitor {
           evidence != BabyCryEvidence.none) _cryCorroborated++;
       final detected = _cryPolicy.observeInference(inference, now);
       if (detected) _cryEvents++;
-      final db = babyCryInputDbfs(frame);
       debugPrint('[KyeobomCryQA] frame=$_cryFrames cry=${score.toStringAsFixed(4)} '
           'peak=${_cryPeak.toStringAsFixed(4)} rank=${inference.cryRank} '
           'top=${inference.topIndex}:${inference.topLabel}:${inference.topScore.toStringAsFixed(4)} '
           'inputDbFS=${db.toStringAsFixed(1)} rate=$rate inferenceMs=${timer.elapsedMilliseconds} '
+          'rawCry=${raw.cryScore.toStringAsFixed(4)} rawPeak=${_cryRawPeak.toStringAsFixed(4)} '
+          'rawTop=${raw.topIndex} rawRank=${raw.cryRank} '
+          'gain=${gainFrame?.gain.toStringAsFixed(2) ?? "1.00"} '
+          'gainDbFS=${gainFrame?.outputDbfs.toStringAsFixed(1) ?? "-"} '
+          'gainCry=${boosted?.cryScore.toStringAsFixed(4) ?? "-"} '
+          'gainTop=${boosted?.topIndex ?? "-"} gainRank=${boosted?.cryRank ?? "-"} '
+          'gainUsed=$gainUsed gainRuns=$_cryGainRuns gainHits=$_cryGainHits '
           'above=$_cryAbove corroborated=$_cryCorroborated evidence=${evidence.name} '
           'elapsedMs=${_cryClock.elapsedMilliseconds} recentHits=${_cryPolicy.recentHits} '
           'strongHits=${_cryPolicy.recentStrongHits} cooldown=$cooldownBefore '
@@ -214,7 +253,7 @@ class BabySoundMonitor {
           '울음 후보 $_cryEvents회 · 현재 ${score.toStringAsFixed(4)} · 최고 ${_cryPeak.toStringAsFixed(4)}\n'
           '추론 $_cryFrames회 · 직접 $_cryAbove회 · 보조 $_cryCorroborated회 · '
           '${_cryPolicy.inCooldown(now) ? "재감지 ${_cryPolicy.cooldownSecondsRemaining(now)}초" : "최근 ${_cryPolicy.recentHits}/2"}\n'
-          '입력 ${db.toStringAsFixed(0)} dBFS · TOP ${inference.topIndex} (${inference.topScore.toStringAsFixed(3)})');
+          '입력 ${db.toStringAsFixed(0)} dBFS · 증폭 $_cryGainHits/$_cryGainRuns · TOP ${inference.topIndex}');
     } catch (error) {
       debugPrint('[KyeobomCryQA] inference failed: $error');
       if (revision == _revision && _cryActive) {

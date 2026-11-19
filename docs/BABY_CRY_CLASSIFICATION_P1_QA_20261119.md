@@ -78,3 +78,21 @@ least one strong hit, and log elapsed milliseconds and evidence type. The
 policy-only replay assumes sampling cadence because older logs lack timestamps;
 retest separate, previously unused clips outside cooldown and compare adult
 crying and normal speech before release.
+
+## Quiet and distant cry QA (bounded gain fallback)
+Android user QA: 8/10. Three ordinary cry clips, adult speech/cry, TV/music,
+infant babbling/laughter and cooldown passed; quiet cry and 3m cry missed.
+No per-frame traces were supplied for those two misses, hence gain improvement
+is a hypothesis, not a verified fix. Raw scoring and temporal policy remain
+unchanged. For raw non-strong evidence outside cooldown, eligible input
+(-65 to -32 dBFS after DC removal) receives bounded gain toward -28 dBFS,
+maximum 16x and peak 0.90. The second prediction can replace raw only if
+strong under the existing policy, top category 19 or 20 and cry rank <=3.
+Exactly one observation per window; silence/strong raw signals bypass gain.
+No new native capture, recording, data transmission or model dependency.
+KYEOBOM_CRY_GAIN_QA=false disables gain for controlled A/B comparison.
+The fallback can amplify noise too, so quiet/3m and all negative tests must
+be repeated at the same volume and distance, plus novel cries and noisy rooms.
+Logs report rawCry, gainCry, gain, gainDbFS, gainUsed, gainRuns and gainHits.
+The UI gain hits/runs count evidence, not events or model accuracy.
+Native overlapping capture and denoising are deferred until gain QA results.
