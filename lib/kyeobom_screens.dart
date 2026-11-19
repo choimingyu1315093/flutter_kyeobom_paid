@@ -256,7 +256,7 @@ class KyeobomStationView extends StatelessWidget {
             ),
             if (babyCryQaStatus != null)
               Text(babyCryQaStatus!, textAlign: TextAlign.center,
-                maxLines: 2, overflow: TextOverflow.ellipsis,
+                maxLines: 3, overflow: TextOverflow.ellipsis,
                 style: const TextStyle(color: Colors.lightBlueAccent, fontSize: 10)),
             if (babyEventCount > 0)
               Text('소리 변화 감지 ${babyEventCount}회 · 거치폰 내부에서만 표시',

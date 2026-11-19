@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import 'baby_sound_policy.dart';
@@ -33,6 +34,10 @@ class BabySoundMonitor {
   bool _disposed = false;
   int _revision = 0;
   int _cryEvents = 0;
+  int _cryFrames = 0;
+  int _cryAbove = 0;
+  double _cryPeak = 0;
+  int _cryEmptyPolls = 0;
 
   Future<void> _operations = Future<void>.value();
   Timer? _poll;
@@ -55,6 +60,10 @@ class BabySoundMonitor {
     if (!_enabled || _running || _disposed || revision != _revision) return;
     _cryActive = false;
     _cryPolicy.resetWindow();
+    _cryFrames = 0;
+    _cryAbove = 0;
+    _cryPeak = 0;
+    _cryEmptyPolls = 0;
     if (enableCryQa) {
       try {
         final classifier = _cryClassifier ??= BabyCryClassifier();
@@ -62,8 +71,9 @@ class BabySoundMonitor {
         if (_disposed || revision != _revision || !_enabled) return;
         _cryActive = true;
         onCryStatus?.call('울음 판별 QA 준비 완료');
-      } catch (_) {
+      } catch (error) {
         if (!_disposed && revision == _revision && _enabled) {
+          debugPrint('[KyeobomCryQA] initialize failed: ${error.runtimeType}');
           onCryStatus?.call('울음 모델 로드 실패 · 일반 소리 감지만 동작');
         }
       }
@@ -146,23 +156,54 @@ class BabySoundMonitor {
   Future<void> _sampleCry(int revision) async {
     try {
       final window = await _native.invokeMapMethod<String, dynamic>('readBabyCryWindow');
-      if (!_running || !_cryActive || revision != _revision || window == null) return;
+      if (!_running || !_cryActive || revision != _revision) return;
+      if (window == null) {
+        if (++_cryEmptyPolls >= 10) {
+          _cryEmptyPolls = 0;
+          debugPrint('[KyeobomCryQA] no complete PCM window (10 polls)');
+          onCryStatus?.call('울음 QA 입력 대기 · 추론 $_cryFrames회');
+        }
+        return;
+      }
+      _cryEmptyPolls = 0;
       final pcm = window['pcm'];
       final rate = window['rate'];
       if (pcm is! Float32List || rate is! int) {
         _cryPolicy.resetWindow();
+        debugPrint('[KyeobomCryQA] invalid PCM types');
+        onCryStatus?.call('울음 QA 입력 형식 오류');
         return;
       }
       final frame = babyCryResample(pcm, rate);
       if (frame == null) {
         _cryPolicy.resetWindow();
+        debugPrint('[KyeobomCryQA] invalid window rate=$rate length=${pcm.length}');
+        onCryStatus?.call('울음 QA 입력 길이 오류');
         return;
       }
-      final score = await _cryClassifier!.score(frame);
+      final timer = Stopwatch()..start();
+      final inference = await _cryClassifier!.classify(frame);
+      timer.stop();
       if (!_running || !_cryActive || revision != _revision) return;
-      if (_cryPolicy.observe(score, DateTime.now())) _cryEvents++;
-      onCryStatus?.call('아기 울음 후보 $_cryEvents회 · 모델 점수 ${score.toStringAsFixed(2)}');
-    } catch (_) {
+      final score = inference.cryScore;
+      _cryFrames++;
+      if (score > _cryPeak) _cryPeak = score;
+      if (score >= _cryPolicy.threshold) _cryAbove++;
+      final now = DateTime.now();
+      final cooldownBefore = _cryPolicy.inCooldown(now);
+      final detected = _cryPolicy.observe(score, now);
+      if (detected) _cryEvents++;
+      final db = babyCryInputDbfs(frame);
+      debugPrint('[KyeobomCryQA] frame=$_cryFrames cry=${score.toStringAsFixed(4)} '
+          'peak=${_cryPeak.toStringAsFixed(4)} rank=${inference.cryRank} '
+          'top=${inference.topIndex}:${inference.topLabel}:${inference.topScore.toStringAsFixed(4)} '
+          'inputDbFS=${db.toStringAsFixed(1)} rate=$rate inferenceMs=${timer.elapsedMilliseconds} '
+          'above=$_cryAbove streak=${_cryPolicy.streak} cooldown=$cooldownBefore event=$detected');
+      onCryStatus?.call(
+          '울음 후보 $_cryEvents회 · 현재 ${score.toStringAsFixed(3)} · 최고 ${_cryPeak.toStringAsFixed(3)}\n'
+          '추론 $_cryFrames회 · 기준충족 $_cryAbove회 · 연속 ${_cryPolicy.streak}/2');
+    } catch (error) {
+      debugPrint('[KyeobomCryQA] inference failed: ${error.runtimeType}');
       if (revision == _revision && _cryActive) {
         _cryActive = false;
         _cryPolicy.resetWindow();

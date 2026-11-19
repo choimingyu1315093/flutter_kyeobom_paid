@@ -42,7 +42,7 @@ class BabyCryClassifier {
     }
   }
 
-  Future<double> score(Float32List frame) async {
+  Future<BabyCryInference> classify(Float32List frame) async {
     final worker = _worker;
     if (worker == null || frame.length != BabyCryPolicy.inputSamples) {
       throw StateError('Cry model/frame is not ready');
@@ -54,11 +54,7 @@ class BabyCryClassifier {
       _inputBatched ? [values] : values,
       _outputBatched ? [result] : result,
     );
-    final score = result[BabyCryPolicy.cryClassIndex];
-    if (!score.isFinite || score < 0 || score > 1) {
-      throw StateError('Invalid model score');
-    }
-    return score;
+    return BabyCryInference.fromScores(result);
   }
 
   Future<void> close() async {

@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 /// QA starting threshold, NOT a validated probability of crying.
@@ -18,6 +19,12 @@ class BabyCryPolicy {
   int _streak = 0;
   DateTime? _lastEvent;
   DateTime? _lastWindow;
+
+  int get streak => _streak;
+  bool inCooldown(DateTime now) {
+    final last = _lastEvent;
+    return last != null && now.difference(last) < cooldown;
+  }
 
   bool observe(double score, DateTime now) {
     final previousWindow = _lastWindow;
@@ -65,4 +72,56 @@ Float32List? babyCryResample(Float32List input, int sourceRate) {
     output[i] = (sum / (b - a)).clamp(-1.0, 1.0).toDouble();
   }
   return output;
+}
+
+/// Diagnostic summary of the score vector only. No audio is retained.
+class BabyCryInference {
+  const BabyCryInference({required this.cryScore, required this.topIndex,
+    required this.topScore, required this.cryRank});
+
+  final double cryScore;
+  final int topIndex;
+  final double topScore;
+  final int cryRank;
+
+  factory BabyCryInference.fromScores(List<double> scores) {
+    if (scores.length != BabyCryPolicy.classCount ||
+        scores.any((s) => !s.isFinite || s < 0 || s > 1)) {
+      throw StateError('Invalid YAMNet output scores');
+    }
+    final cry = scores[BabyCryPolicy.cryClassIndex];
+    var top = 0;
+    for (var i = 1; i < scores.length; i++) {
+      if (scores[i] > scores[top]) top = i;
+    }
+    return BabyCryInference(cryScore: cry, topIndex: top,
+      topScore: scores[top],
+      cryRank: 1 + scores.where((s) => s > cry).length);
+  }
+
+  String get topLabel => switch (topIndex) {
+    0 => 'Speech',
+    1 => 'Child speech',
+    4 => 'Babbling',
+    11 => 'Screaming',
+    12 => 'Whispering',
+    13 => 'Laughter',
+    14 => 'Baby laughter',
+    19 => 'Crying, sobbing',
+    20 => 'Baby cry, infant cry',
+    21 => 'Whimper',
+    _ => 'Class #$topIndex',
+  };
+}
+
+double babyCryInputDbfs(Float32List frame) {
+  if (frame.isEmpty) return -100;
+  var power = 0.0;
+  for (final v in frame) {
+    if (!v.isFinite) return -100;
+    power += v * v;
+  }
+  final rms = math.sqrt(power / frame.length);
+  return (20 * math.log(math.max(rms, 0.00001)) / math.ln10)
+      .clamp(-100.0, 0.0).toDouble();
 }
