@@ -1,9 +1,12 @@
 import com.android.build.api.variant.LibraryAndroidComponentsExtension
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
     // Version is provided by settings.gradle.kts (AGP 9.0.1).
     // Expose the shared AGP API to the root build script.
     id("com.android.application") apply false
+    id("org.jetbrains.kotlin.android") apply false
 }
 
 allprojects {
@@ -24,13 +27,19 @@ subprojects {
     project.layout.buildDirectory.value(newSubprojectBuildDir)
 }
 // Fix the Android DSL before AGP creates its variants and compile tasks.
-// Flutter's Kotlin integration targets JVM 17; tflite_flutter 0.12.1
-// declares Java 11. A task-only afterEvaluate override was insufficient.
+// tflite_flutter 0.12.1 declares Java 11, while Kotlin's default target
+// follows the JDK (observed 17 for Flutter and 21 for direct Gradle).
+// Pin both targets explicitly to 17, independently of the daemon JDK.
 // Register this callback before evaluationDependsOn(":app") can evaluate
 // any plugin projects. Scope strictly to tflite_flutter.
 subprojects {
     if (name == "tflite_flutter") {
         val tfliteProject = this
+        // Explicit task-level Kotlin options take precedence over toolchain
+        // defaults and project-level compiler conventions.
+        tasks.withType<KotlinCompile>().configureEach {
+            compilerOptions.jvmTarget.set(JvmTarget.JVM_17)
+        }
         pluginManager.withPlugin("com.android.library") {
             tfliteProject.extensions
                 .getByType(LibraryAndroidComponentsExtension::class.java)
@@ -40,7 +49,7 @@ subprojects {
                     // AGP 9 prohibits reading CompileOptions until DSL finalization
                     // finishes. Log the intended value, not its guarded getter.
                     tfliteProject.logger.lifecycle(
-                        "[Kyeobom] tflite_flutter requested Java target: 17"
+                        "[Kyeobom] tflite_flutter requested Java/Kotlin targets: 17/17"
                     )
                 }
         }
