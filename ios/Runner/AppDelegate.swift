@@ -10,7 +10,7 @@ import WebRTC
 private final class BabyCryRtcRenderer: NSObject, RTCAudioRenderer {
   let receive: (AVAudioPCMBuffer) -> Void
   init(receive: @escaping (AVAudioPCMBuffer) -> Void) { self.receive = receive }
-  func renderPCMBuffer(_ pcmBuffer: AVAudioPCMBuffer) { receive(pcmBuffer) }
+  func render(pcmBuffer: AVAudioPCMBuffer) { receive(pcmBuffer) }
 }
 
 @main
@@ -96,7 +96,7 @@ private final class BabyCryRtcRenderer: NSObject, RTCAudioRenderer {
     babySoundLock.unlock()
     babyRtcTrack = track
     babyRtcRenderer = renderer
-    track.addRenderer(renderer)
+    track.add(renderer)
   }
 
   private func startBabySoundMonitoring(enableCryQa: Bool) throws {
@@ -163,7 +163,7 @@ private final class BabyCryRtcRenderer: NSObject, RTCAudioRenderer {
   private func stopBabySoundMonitoring() {
     disableBabyCryCapture()
     if let track = babyRtcTrack, let renderer = babyRtcRenderer {
-      track.removeRenderer(renderer)
+      track.remove(renderer)
     }
     babyRtcRenderer = nil
     babyRtcTrack = nil
