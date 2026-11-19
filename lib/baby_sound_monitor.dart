@@ -7,8 +7,9 @@ import 'baby_sound_policy.dart';
 import 'baby_cry_classifier.dart';
 import 'baby_cry_policy.dart';
 
-/// Local-only baby sound-change monitoring. The native layer reads the mic's
-/// energy (dBFS), never raw audio, and never stores or transmits audio.
+/// Local-only sound-change monitoring. P0 receives dBFS only. Optional
+/// P1 QA receives bounded waveform windows into the local interpreter.
+/// Neither path saves audio files, sends audio over the network or logs audio.
 class BabySoundMonitor {
   BabySoundMonitor({
     required this.onStatus,
@@ -58,10 +59,13 @@ class BabySoundMonitor {
       try {
         final classifier = _cryClassifier ??= BabyCryClassifier();
         await classifier.initialize();
+        if (_disposed || revision != _revision || !_enabled) return;
         _cryActive = true;
         onCryStatus?.call('울음 판별 QA 준비 완료');
       } catch (_) {
-        onCryStatus?.call('울음 모델 로드 실패 · 일반 소리 감지만 동작');
+        if (!_disposed && revision == _revision && _enabled) {
+          onCryStatus?.call('울음 모델 로드 실패 · 일반 소리 감지만 동작');
+        }
       }
     }
     if (!_enabled || _disposed || revision != _revision) {
@@ -87,7 +91,9 @@ class BabySoundMonitor {
     ++_revision;
     _cryActive = false;
     _cryPolicy.resetWindow();
-    if (enableCryQa) onCryStatus?.call('울음 판별 QA 일시정지 · $_cryEvents회');
+    if (enableCryQa && !_disposed) {
+      onCryStatus?.call('울음 판별 QA 일시정지 · $_cryEvents회');
+    }
     return _enqueue(() async {
     _poll?.cancel();
     _poll = null;
@@ -110,11 +116,13 @@ class BabySoundMonitor {
   }
 
   Future<void> _sample() async {
-    if (!_running || _sampling) return;
+    if (!_running || _sampling || _disposed || !_enabled) return;
+    final revision = _revision;
     _sampling = true;
     try {
       final db = await _native.invokeMethod<double>('readBabySoundLevel');
-      if (!_running || db == null) return;
+      if (!_running || _disposed || !_enabled ||
+          revision != _revision || db == null) return;
       if (_detector.observe(db, DateTime.now())) {
         _events++;
         onDetection(_events);
@@ -123,12 +131,12 @@ class BabySoundMonitor {
       if (_cryActive && _cryPending == null) {
         final task = _sampleCry(_revision);
         _cryPending = task;
-        unawaited(task.whenComplete(() => _cryPending = null));
+        unawaited(task.whenComplete(() { _cryPending = null; }));
       }
     } catch (error) {
-      if (_running) {
+      if (_running && !_disposed && revision == _revision) {
         onStatus('소리 감지 오류 · 베이비 모드를 껐다 켜주세요: $error');
-        unawaited(stop());
+        unawaited(stop().catchError((Object _) {}));
       }
     } finally {
       _sampling = false;
@@ -141,7 +149,10 @@ class BabySoundMonitor {
       if (!_running || !_cryActive || revision != _revision || window == null) return;
       final pcm = window['pcm'];
       final rate = window['rate'];
-      if (pcm is! Float32List || rate is! int) return;
+      if (pcm is! Float32List || rate is! int) {
+        _cryPolicy.resetWindow();
+        return;
+      }
       final frame = babyCryResample(pcm, rate);
       if (frame == null) {
         _cryPolicy.resetWindow();

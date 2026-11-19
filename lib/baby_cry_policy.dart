@@ -17,8 +17,16 @@ class BabyCryPolicy {
   final Duration cooldown;
   int _streak = 0;
   DateTime? _lastEvent;
+  DateTime? _lastWindow;
 
   bool observe(double score, DateTime now) {
+    final previousWindow = _lastWindow;
+    if (previousWindow != null &&
+        (now.isBefore(previousWindow) ||
+         now.difference(previousWindow) > const Duration(seconds: 3))) {
+      _streak = 0;
+    }
+    _lastWindow = now;
     if (!score.isFinite || score < threshold || score > 1) {
       _streak = 0;
       return false;
@@ -32,7 +40,10 @@ class BabyCryPolicy {
   }
 
   /// Pause/restore discards the previous consecutive-window evidence.
-  void resetWindow() => _streak = 0;
+  void resetWindow() {
+    _streak = 0;
+    _lastWindow = null;
+  }
 }
 
 /// Native inputs are mono, sampled at the actual device rate. Convert one

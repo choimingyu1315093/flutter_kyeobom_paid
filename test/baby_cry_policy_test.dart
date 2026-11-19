@@ -23,6 +23,12 @@ void main() {
     expect(p.observe(.9, now.add(const Duration(seconds: 91))), false);
     expect(p.observe(.9, now.add(const Duration(seconds: 92))), true);
   });
+  test('two scores separated by a long capture gap cannot trigger', () {
+    final p = BabyCryPolicy();
+    expect(p.observe(.9, now), false);
+    expect(p.observe(.9, now.add(const Duration(seconds: 10))), false);
+    expect(p.observe(.9, now.add(const Duration(seconds: 11))), true);
+  });
   test('converts 16k and 48k mono device input to fixed float waveform', () {
     final mono = Float32List.fromList(List.filled(15600, .25));
     expect(babyCryResample(mono, 16000), orderedEquals(mono));

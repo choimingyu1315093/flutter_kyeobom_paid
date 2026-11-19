@@ -13,7 +13,7 @@ TMP="$(mktemp "$DIR/.yamnet.XXXXXX")"
 trap 'rm -f "$TMP"' EXIT
 curl --fail --location --proto '=https' --proto-redir '=https' --retry 2 --max-time 120 "$URL" -o "$TMP"
 python3 - "$TMP" <<'PY'
-import pathlib, sys, zipfile
+import csv, pathlib, sys, zipfile
 p = pathlib.Path(sys.argv[1])
 with p.open("rb") as f:
     header = f.read(8)
@@ -26,8 +26,12 @@ with zipfile.ZipFile(p) as z:
         if not name.lower().endswith((".txt", ".csv")):
             continue
         lines = z.read(name).decode("utf-8-sig").splitlines()
-        if len(lines) == 521 and lines[20].strip() == "Baby cry, infant cry":
+        if len(lines) == 521 and lines[20].strip().strip('"') == "Baby cry, infant cry":
             matches.append(name)
+        elif name.lower().endswith(".csv"):
+            rows = list(csv.DictReader(lines))
+            if len(rows) == 521 and rows[20].get("index") == "20" and rows[20].get("display_name") == "Baby cry, infant cry":
+                matches.append(name)
     if not matches:
         raise SystemExit("Unexpected YAMNet label map; refusing to use model")
 print("TFLite header and 521-class label map verified.")
