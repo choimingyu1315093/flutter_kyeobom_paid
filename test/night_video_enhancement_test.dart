@@ -73,4 +73,17 @@ void main() {
     ]);
   });
 
+  test('missing or blank WebRTC track ID never invokes native processor', () async {
+    final n = NightVideoEnhancement(channel: channel, enabled: true);
+    expect(await n.attach(null), false);
+    expect(await n.attach(''), false);
+    expect(await n.attach('   '), false);
+    expect(n.attached, false);
+    expect(calls, isEmpty);
+    expect(await n.attach('valid'), true);
+    expect(await n.attach(null), false);
+    expect(n.attached, true);
+    expect(calls.map((c) => c.method), ['attachNightVideo']);
+  });
+
 }

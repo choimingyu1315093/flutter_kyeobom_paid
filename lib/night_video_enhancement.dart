@@ -16,8 +16,10 @@ class NightVideoEnhancement {
   String? _trackId;
   bool get attached => _trackId != null;
 
-  Future<bool> attach(String trackId) async {
-    if (!_enabled) return false;
+  Future<bool> attach(String? trackId) async {
+    // MediaStreamTrack.id is nullable in the WebRTC interface.
+    // Missing identifiers must never interrupt the original video path.
+    if (!_enabled || trackId == null || trackId.trim().isEmpty) return false;
     if (_trackId == trackId) return true;
     if (!await detach()) return false;
     try {
