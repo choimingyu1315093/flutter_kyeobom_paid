@@ -21,27 +21,37 @@ private final class NightLumaPolicy {
   private var darkSamples = 0
   private var brightSamples = 0
   private var strengthStep = 0
+  private var targetStep = 0
 
-  func observe(mean: Double, darkFraction: Double) {
-    guard mean.isFinite, darkFraction.isFinite else { reset(); return }
-    if mean >= 0.42 || darkFraction < 0.45 || mean < 0.012 {
-      reset()
-      return
+  func shouldBypass(mean: Double, darkFraction: Double, low: Double, high: Double) -> Bool {
+    return !mean.isFinite || !darkFraction.isFinite || !low.isFinite || !high.isFinite ||
+      mean >= 0.42 || darkFraction < 0.45 || high < 0.025 ||
+      (high < 0.065 && high - low < 0.018)
+  }
+
+  func observe(mean: Double, darkFraction: Double, low: Double, high: Double) {
+    if shouldBypass(mean: mean, darkFraction: darkFraction, low: low, high: high) {
+      reset(); return
     }
-    let dark = mean <= 0.23 && darkFraction >= 0.80
-    let bright = mean >= 0.32 || darkFraction < 0.65
+    let dark = mean <= 0.29 && darkFraction >= 0.70
+    let bright = mean >= 0.35 || darkFraction < 0.60
     if !active {
       darkSamples = dark ? darkSamples + 1 : 0
       if darkSamples >= 3 { active = true; brightSamples = 0 }
     } else {
       brightSamples = bright ? brightSamples + 1 : 0
-      if brightSamples >= 2 { reset() }
+      if brightSamples >= 2 { reset(); return }
+    }
+    if active {
+      let illumination = min(1, max(0, (0.34 - mean) / 0.26))
+      let signal = min(1, max(0, (high - 0.025) / 0.055))
+      targetStep = min(16, max(1, Int((16 * illumination * signal).rounded())))
     }
   }
 
   func nextStrengthStep() -> Int {
     guard active else { strengthStep = 0; return 0 }
-    strengthStep = min(8, strengthStep + 1)
+    strengthStep += min(1, max(-1, targetStep - strengthStep))
     return strengthStep
   }
 
@@ -50,24 +60,39 @@ private final class NightLumaPolicy {
     darkSamples = 0
     brightSamples = 0
     strengthStep = 0
+    targetStep = 0
   }
 
+  private static let knots = [0.0, 0.01, 0.03, 0.06, 0.12, 0.22, 0.35, 0.55, 0.75, 0.90, 1.0]
+  private static let lifted = [0.0, 0.01, 0.075, 0.19, 0.34, 0.48, 0.60, 0.70, 0.80, 0.91, 1.0]
+
   static func lut(step: Int, low: Int, high: Int) -> [UInt8] {
-    let amount = Double(max(0, min(8, step))) / 8.0
+    let amount = Double(max(0, min(16, step))) / 16.0
     return (0...255).map { value in
       guard value > low, value < high, amount > 0 else { return UInt8(value) }
       let x = Double(value - low) / Double(high - low)
-      let lift = min(0.18, max(0, (pow(x, 0.65) - x) * min(1, max(0, x / 0.035))))
-      let taper = min(1, max(0, (0.72 - x) / 0.32))
-      return UInt8(min(high, max(value, Int((Double(low) + (x + lift * taper * amount) * Double(high - low)).rounded()))))
+      let segment = (1..<knots.count).first { x <= knots[$0] } ?? knots.count - 1
+      let t = (x - knots[segment - 1]) / (knots[segment] - knots[segment - 1])
+      let target = lifted[segment - 1] + t * (lifted[segment] - lifted[segment - 1])
+      return UInt8(min(high, max(value, Int((Double(low) + (x + (target - x) * amount) * Double(high - low)).rounded()))))
     }
+  }
+
+  static func percentile(_ histogram: [Int], count: Int, percentile: Int) -> Int {
+    let rank = max(1, (count * percentile + 99) / 100)
+    var cumulative = 0
+    for i in histogram.indices {
+      cumulative += histogram[i]
+      if cumulative >= rank { return i }
+    }
+    return 0
   }
 }
 
 private final class NightVideoProcessor: NSObject, ExternalVideoProcessingDelegate {
   private let policy = NightLumaPolicy()
-  private let fullTables = (0...8).map { NightLumaPolicy.lut(step: $0, low: 0, high: 255) }
-  private let videoTables = (0...8).map { NightLumaPolicy.lut(step: $0, low: 16, high: 235) }
+  private let fullTables = (0...16).map { NightLumaPolicy.lut(step: $0, low: 0, high: 255) }
+  private let videoTables = (0...16).map { NightLumaPolicy.lut(step: $0, low: 16, high: 235) }
   private var nextSample: TimeInterval = 0
   private var bypassUntil: TimeInterval = 0
   private var slowFrames = 0
@@ -75,18 +100,34 @@ private final class NightVideoProcessor: NSObject, ExternalVideoProcessingDelega
   private var poolWidth = 0
   private var poolHeight = 0
   private var poolFormat: OSType = 0
+  private let qa: Bool
+  private var histogram = [Int](repeating: 0, count: 256)
+  private var lastLog = ""
+  private var lastLogAt: TimeInterval = 0
+
+  init(qa: Bool) { self.qa = qa; super.init() }
+
+  private func report(_ state: String, _ detail: String = "") {
+    guard qa else { return }
+    let now = ProcessInfo.processInfo.systemUptime
+    guard state != lastLog || now - lastLogAt >= 10 else { return }
+    lastLog = state; lastLogAt = now
+    NSLog("[KyeobomNightQA] state=%@ %@", state, detail)
+  }
 
   func onFrame(_ frame: RTCVideoFrame) -> RTCVideoFrame {
     let started = ProcessInfo.processInfo.systemUptime
-    guard started >= bypassUntil, policy.active || started >= nextSample,
-          let source = frame.buffer as? RTCCVPixelBuffer else { return frame }
+    guard started >= bypassUntil, policy.active || started >= nextSample else { return frame }
+    guard let source = frame.buffer as? RTCCVPixelBuffer else {
+      report("unsupported_buffer"); return frame
+    }
     let src = source.pixelBuffer
     let format = CVPixelBufferGetPixelFormatType(src)
     let full = format == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
     guard full || format == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
-          CVPixelBufferGetPlaneCount(src) == 2 else { return frame }
+          CVPixelBufferGetPlaneCount(src) == 2 else { report("unsupported_format"); return frame }
     let w = CVPixelBufferGetWidth(src), h = CVPixelBufferGetHeight(src)
-    guard w > 0, h > 0, w * h <= 2_100_000 else { return frame }
+    guard w > 0, h > 0, w * h <= 3_200_000 else { report("unsupported_size", "\(w)x\(h)"); return frame }
     guard CVPixelBufferLockBaseAddress(src, .readOnly) == kCVReturnSuccess else { return frame }
     defer {
       CVPixelBufferUnlockBaseAddress(src, .readOnly)
@@ -96,6 +137,7 @@ private final class NightVideoProcessor: NSObject, ExternalVideoProcessingDelega
           policy.reset()
           bypassUntil = ProcessInfo.processInfo.systemUptime + 10
           slowFrames = 0
+          report("performance_bypass", "10s")
         }
       } else { slowFrames = 0 }
     }
@@ -103,6 +145,7 @@ private final class NightVideoProcessor: NSObject, ExternalVideoProcessingDelega
     let yStride = CVPixelBufferGetBytesPerRowOfPlane(src, 0)
     let low = full ? 0.0 : 16.0, range = full ? 255.0 : 219.0
     var sum = 0.0, dark = 0
+    for j in histogram.indices { histogram[j] = 0 }
     let cropX = max(0, Int(source.cropX)), cropY = max(0, Int(source.cropY))
     let cropW = min(w - cropX, Int(source.cropWidth))
     let cropH = min(h - cropY, Int(source.cropHeight))
@@ -111,22 +154,30 @@ private final class NightVideoProcessor: NSObject, ExternalVideoProcessingDelega
       let py = cropY + min(cropH - 1, (gy * 2 + 1) * cropH / 24)
       for gx in 0..<16 {
         let px = cropX + min(cropW - 1, (gx * 2 + 1) * cropW / 32)
-        let v = min(1, max(0, (Double(yBase[py * yStride + px]) - low) / range))
+        let code = Int(yBase[py * yStride + px])
+        histogram[code] += 1
+        let v = min(1, max(0, (Double(code) - low) / range))
         sum += v
         if v < 0.30 { dark += 1 }
       }
     }
     let mean = sum / 192.0, fraction = Double(dark) / 192.0
+    let p10 = min(1, max(0, (Double(NightLumaPolicy.percentile(histogram, count: 192, percentile: 10)) - low) / range))
+    let p95 = min(1, max(0, (Double(NightLumaPolicy.percentile(histogram, count: 192, percentile: 95)) - low) / range))
     if started >= nextSample {
-      policy.observe(mean: mean, darkFraction: fraction)
+      policy.observe(mean: mean, darkFraction: fraction, low: p10, high: p95)
       nextSample = started + 0.4
-    } else if mean >= 0.42 || fraction < 0.45 || mean < 0.012 {
+    } else if policy.shouldBypass(mean: mean, darkFraction: fraction, low: p10, high: p95) {
       policy.reset()
     }
-    guard policy.active else { return frame }
+    guard policy.active else {
+      report(p95 < 0.025 || (p95 < 0.065 && p95 - p10 < 0.018) ? "insufficient_signal" : "original",
+             "mean=\(mean) p95=\(p95) dark=\(fraction)")
+      return frame
+    }
     let step = policy.nextStrengthStep()
     let table = full ? fullTables[step] : videoTables[step]
-    guard let dst = makeBuffer(width: w, height: h, format: format) else { return frame }
+    guard let dst = makeBuffer(width: w, height: h, format: format) else { report("buffer_busy"); return frame }
     CVBufferPropagateAttachments(src, dst)
     guard CVPixelBufferLockBaseAddress(dst, []) == kCVReturnSuccess else { return frame }
     defer { CVPixelBufferUnlockBaseAddress(dst, []) }
@@ -151,6 +202,7 @@ private final class NightVideoProcessor: NSObject, ExternalVideoProcessingDelega
       adaptedWidth: source.width, adaptedHeight: source.height,
       cropWidth: source.cropWidth, cropHeight: source.cropHeight,
       cropX: source.cropX, cropY: source.cropY)
+    report("enhanced", "\(w)x\(h) strength=\(step)/16")
     return RTCVideoFrame(buffer: wrapped, rotation: frame.rotation, timeStampNs: frame.timeStampNs)
   }
 
@@ -195,11 +247,11 @@ private final class NightVideoProcessor: NSObject, ExternalVideoProcessingDelega
     nightTrackId = nil
   }
 
-  private func attachNightVideo(trackId: String) -> Bool {
+  private func attachNightVideo(trackId: String, qa: Bool) -> Bool {
     if nightTrackId == trackId, nightProcessor != nil { return true }
     detachNightVideo()
     guard let track = FlutterWebRTCPlugin.sharedSingleton()?.localTracks?[trackId] as? LocalVideoTrack else { return false }
-    let processor = NightVideoProcessor()
+    let processor = NightVideoProcessor(qa: qa)
     track.addProcessing(processor)
     nightTrack = track
     nightProcessor = processor
@@ -418,7 +470,7 @@ private final class NightVideoProcessor: NSObject, ExternalVideoProcessingDelega
       switch call.method {
       case "attachNightVideo":
         let args = call.arguments as? [String: Any]
-        result(self.attachNightVideo(trackId: args?["trackId"] as? String ?? ""))
+        result(self.attachNightVideo(trackId: args?["trackId"] as? String ?? "", qa: args?["qa"] as? Bool ?? false))
       case "detachNightVideo":
         let args = call.arguments as? [String: Any]
         self.detachNightVideo(trackId: args?["trackId"] as? String)

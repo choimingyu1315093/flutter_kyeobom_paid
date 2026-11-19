@@ -43,12 +43,12 @@ class MainActivity : FlutterActivity() {
         if (track != null && processor != null) track.removeProcessor(processor)
     }
 
-    private fun attachNightVideo(trackId: String): Boolean {
+    private fun attachNightVideo(trackId: String, qa: Boolean): Boolean {
         if (nightTrackId == trackId && nightProcessor != null) return true
         detachNightVideo()
         val track = FlutterWebRTCPlugin.sharedSingleton?.getLocalTrack(trackId) as? LocalVideoTrack
             ?: return false
-        val processor = NightVideoProcessor()
+        val processor = NightVideoProcessor(qa)
         track.addProcessor(processor)
         nightTrack = track
         nightProcessor = processor
@@ -246,7 +246,7 @@ class MainActivity : FlutterActivity() {
                 when (call.method) {
                     "attachNightVideo" -> {
                         val id = call.argument<String>("trackId")
-                        try { result.success(id != null && attachNightVideo(id)) }
+                        try { result.success(id != null && attachNightVideo(id, call.argument<Boolean>("qa") == true)) }
                         catch (_: Exception) { result.success(false) }
                     }
                     "detachNightVideo" -> {

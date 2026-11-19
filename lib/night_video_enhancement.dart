@@ -24,7 +24,10 @@ class NightVideoEnhancement {
     if (!await detach()) return false;
     try {
       final attached = await _channel.invokeMethod<bool>(
-          'attachNightVideo', {'trackId': trackId}) == true;
+          'attachNightVideo', {
+            'trackId': trackId,
+            'qa': const bool.fromEnvironment('KYEOBOM_NIGHT_COMPARE_QA'),
+          }) == true;
       if (attached) _trackId = trackId;
       return attached;
     } catch (error) {
