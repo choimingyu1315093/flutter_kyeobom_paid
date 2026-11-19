@@ -313,6 +313,8 @@ class _StationScreenState extends State<StationScreen>
   bool _babyBusy = false;
   String? _babyStatus;
   int _babyEvents = 0;
+  static const _babyCryQa = bool.fromEnvironment('KYEOBOM_CRY_QA');
+  String? _babyCryStatus;
   Future<void> _commandQueue = Future<void>.value();
 
   String _status = '연결 대기 준비 중';
@@ -344,6 +346,10 @@ class _StationScreenState extends State<StationScreen>
     );
     _eventSettingsReady = _loadEventSetting();
     _babySound = BabySoundMonitor(
+      enableCryQa: _babyCryQa,
+      onCryStatus: (status) {
+        if (mounted && !_leaving) setState(() => _babyCryStatus = status);
+      },
       onStatus: (status) {
         if (mounted && !_leaving) setState(() => _babyStatus = status);
       },
@@ -810,7 +816,7 @@ class _StationScreenState extends State<StationScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _health?.stop();
-    unawaited(_babySound.stop().catchError((Object _) {}));
+    unawaited(_babySound.dispose().catchError((Object _) {}));
     // Native camera teardown remains deferred; finalize video first.
     unawaited(_events.stop().then((_) => _rtc.end(notifyRemote: !_leaving)));
     unawaited(_commands?.cancel());
@@ -849,6 +855,7 @@ class _StationScreenState extends State<StationScreen>
           babyRunning: _babySound.running,
           babyEventCount: _babyEvents,
           babyStatus: _babyStatus,
+          babyCryQaStatus: _babyCryQa && _babyEnabled ? _babyCryStatus : null,
           onBabyChanged: (enabled) => unawaited(_setBabyEnabled(enabled)),
           autoMicrophoneEnabled: _micAutoEnabled,
           autoMicrophoneBusy: _micSettingsBusy,

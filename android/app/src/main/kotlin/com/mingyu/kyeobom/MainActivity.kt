@@ -26,9 +26,27 @@ class MainActivity : FlutterActivity() {
     // Collects only decibel readings, never audio buffers on disk/network.
     @Volatile private var babyMonitoring = false
     @Volatile private var babySoundDb = -100.0
-    private var babyRecorder: AudioRecord? = null
+    @Volatile private var babyRecorder: AudioRecord? = null
+    private val cryLock = Any()
+    private var cryCapture = false
+    private var cryCount = 0
+    private val cryWindow = FloatArray(15600)
 
-    private fun startBabyMonitoring(): String? {
+    private fun readBabyCryWindow(): Map<String, Any>? = synchronized(cryLock) {
+        if (!cryCapture || cryCount != cryWindow.size) return@synchronized null
+        val pcm = cryWindow.copyOf()
+        cryWindow.fill(0f)
+        cryCount = 0
+        mapOf("pcm" to pcm, "rate" to 16000)
+    }
+
+    private fun disableBabyCryCapture() = synchronized(cryLock) {
+        cryCapture = false
+        cryCount = 0
+        cryWindow.fill(0f)
+    }
+
+    private fun startBabyMonitoring(enableCryQa: Boolean): String? {
         if (babyMonitoring) return null
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) !=
             PackageManager.PERMISSION_GRANTED) return "마이크 권한이 필요합니다"
@@ -57,12 +75,25 @@ class MainActivity : FlutterActivity() {
         }
         babyRecorder = recorder
         babySoundDb = -100.0
+        synchronized(cryLock) {
+            cryCapture = enableCryQa
+            cryCount = 0
+            cryWindow.fill(0f)
+        }
         babyMonitoring = true
         Thread({
             val samples = ShortArray(1024)
             while (babyMonitoring && babyRecorder === recorder) {
                 val count = recorder.read(samples, 0, samples.size)
-                if (count <= 0) break
+                if (count <= 0 || !babyMonitoring || babyRecorder !== recorder) break
+                synchronized(cryLock) {
+                    if (cryCapture && babyRecorder === recorder) {
+                        for (i in 0 until count) {
+                            if (cryCount == cryWindow.size) break
+                            cryWindow[cryCount++] = samples[i] / 32768.0f
+                        }
+                    }
+                }
                 var power = 0.0
                 for (i in 0 until count) {
                     val sample = samples[i].toDouble()
@@ -81,6 +112,7 @@ class MainActivity : FlutterActivity() {
 
     private fun stopBabyMonitoring() {
         babyMonitoring = false
+        disableBabyCryCapture()
         val recorder = babyRecorder
         babyRecorder = null
         babySoundDb = -100.0
@@ -124,11 +156,16 @@ class MainActivity : FlutterActivity() {
             .setMethodCallHandler { call, result ->
                 when (call.method) {
                     "startBabySoundMonitoring" -> {
-                        val failure = startBabyMonitoring()
+                        val failure = startBabyMonitoring(call.argument<Boolean>("cryQa") == true)
                         if (failure == null) result.success(null)
                         else result.error("BABY_SOUND_UNAVAILABLE", failure, null)
                     }
                     "readBabySoundLevel" -> result.success(babySoundDb)
+                    "readBabyCryWindow" -> result.success(readBabyCryWindow())
+                    "disableBabyCryCapture" -> {
+                        disableBabyCryCapture()
+                        result.success(null)
+                    }
                     "stopBabySoundMonitoring" -> {
                         stopBabyMonitoring()
                         result.success(null)

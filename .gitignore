@@ -60,3 +60,7 @@ firebase-debug.*.log
 # Local emulator QA artifacts
 /tools/paid_security_rules/node_modules/
 /tools/paid_security_rules/firestore.rules
+
+# QA model is provisioned locally from the official Google model URL.
+/assets/baby_cry/yamnet.tflite
+/assets/baby_cry/yamnet.sha256

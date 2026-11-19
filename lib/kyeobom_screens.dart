@@ -34,6 +34,7 @@ class KyeobomStationView extends StatelessWidget {
     this.babyRunning = false,
     this.babyEventCount = 0,
     this.babyStatus,
+    this.babyCryQaStatus,
     this.onBabyChanged,
   });
 
@@ -53,6 +54,7 @@ class KyeobomStationView extends StatelessWidget {
   final bool babyEnabled, babyBusy, babyRunning;
   final int babyEventCount;
   final String? babyStatus;
+  final String? babyCryQaStatus;
   final ValueChanged<bool>? onBabyChanged;
 
   @override
@@ -252,6 +254,10 @@ class KyeobomStationView extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(color: Colors.white54, fontSize: 10),
             ),
+            if (babyCryQaStatus != null)
+              Text(babyCryQaStatus!, textAlign: TextAlign.center,
+                maxLines: 2, overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: Colors.lightBlueAccent, fontSize: 10)),
             if (babyEventCount > 0)
               Text('소리 변화 감지 ${babyEventCount}회 · 거치폰 내부에서만 표시',
                 textAlign: TextAlign.center,

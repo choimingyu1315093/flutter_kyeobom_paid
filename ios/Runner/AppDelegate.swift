@@ -14,6 +14,28 @@ import AVFoundation
   private var babyAudioEngine: AVAudioEngine?
   private let babySoundLock = NSLock()
   private var babySoundDb = -100.0
+  private var cryCapture = false
+  private var cryRate = 0
+  private var cryCount = 0
+  private var cryWindow: [Float] = []
+
+  private func disableBabyCryCapture() {
+    babySoundLock.lock()
+    cryCapture = false
+    cryCount = 0
+    cryWindow.removeAll()
+    babySoundLock.unlock()
+  }
+
+  private func readBabyCryWindow() -> [String: Any]? {
+    babySoundLock.lock()
+    defer { babySoundLock.unlock() }
+    guard cryCapture, !cryWindow.isEmpty, cryCount == cryWindow.count else { return nil }
+    let bytes = cryWindow.withUnsafeBufferPointer { Data(buffer: $0) }
+    for index in cryWindow.indices { cryWindow[index] = 0 }
+    cryCount = 0
+    return ["pcm": FlutterStandardTypedData(float32: bytes), "rate": cryRate]
+  }
 
   private func readBabySoundLevel() -> Double {
     babySoundLock.lock()
@@ -21,7 +43,7 @@ import AVFoundation
     return babySoundDb
   }
 
-  private func startBabySoundMonitoring() throws {
+  private func startBabySoundMonitoring(enableCryQa: Bool) throws {
     if babyAudioEngine != nil { return }
     let session = AVAudioSession.sharedInstance()
     try session.setCategory(.record, mode: .measurement)
@@ -36,6 +58,12 @@ import AVFoundation
     }
     babySoundLock.lock()
     babySoundDb = -100.0
+    cryRate = Int(format.sampleRate.rounded())
+    cryCapture = enableCryQa && cryRate >= 16000 && cryRate <= 192000
+    cryCount = 0
+    cryWindow = cryCapture
+      ? [Float](repeating: 0, count: Int((Double(cryRate) * 0.975).rounded()))
+      : []
     babySoundLock.unlock()
     input.installTap(onBus: 0, bufferSize: 1024, format: format) {
       [weak self] buffer, _ in
@@ -52,6 +80,15 @@ import AVFoundation
       let db = min(0.0, max(-100.0, 20.0 * log10(max(rms, 0.00001))))
       self.babySoundLock.lock()
       self.babySoundDb = db
+      if self.cryCapture {
+        let copied = min(frames, self.cryWindow.count - self.cryCount)
+        if copied > 0 {
+          for index in 0..<copied {
+            self.cryWindow[self.cryCount + index] = channels[0][index]
+          }
+          self.cryCount += copied
+        }
+      }
       self.babySoundLock.unlock()
     }
     do {
@@ -61,12 +98,14 @@ import AVFoundation
     } catch {
       input.removeTap(onBus: 0)
       engine.stop()
+      disableBabyCryCapture()
       try? session.setActive(false, options: .notifyOthersOnDeactivation)
       throw error
     }
   }
 
   private func stopBabySoundMonitoring() {
+    disableBabyCryCapture()
     guard let engine = babyAudioEngine else { return }
     babyAudioEngine = nil
     engine.inputNode.removeTap(onBus: 0)
@@ -103,7 +142,8 @@ import AVFoundation
       switch call.method {
       case "startBabySoundMonitoring":
         do {
-          try self.startBabySoundMonitoring()
+          let args = call.arguments as? [String: Any]
+          try self.startBabySoundMonitoring(enableCryQa: args?["cryQa"] as? Bool == true)
           result(nil)
         } catch {
           result(FlutterError(code: "BABY_SOUND_UNAVAILABLE",
@@ -111,6 +151,11 @@ import AVFoundation
         }
       case "readBabySoundLevel":
         result(self.readBabySoundLevel())
+      case "readBabyCryWindow":
+        result(self.readBabyCryWindow())
+      case "disableBabyCryCapture":
+        self.disableBabyCryCapture()
+        result(nil)
       case "stopBabySoundMonitoring":
         self.stopBabySoundMonitoring()
         result(nil)
